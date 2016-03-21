@@ -47,6 +47,7 @@ public class Server extends UnicastRemoteObject
 		Naming.rebind(String.format("//%s:%d/server", selfIP, selfRPCPort), server);
 		float curTime = SL.getTime();
 		System.out.println("Current time is " + curTime);
+		curRound = vmId % numOfApps;
 
 		if (vmId == MASTER){
 			selfRole = FORWARDER;
@@ -61,14 +62,16 @@ public class Server extends UnicastRemoteObject
 //				SL.startVM();
 //			}
 
+
 			// launch 3 appServer
 			for (int i = 0; i < 3; ++i){
 				System.out.println("launching apps..");
 				appServerList.add(SL.startVM() + basePort);
 			}
+
 			Thread.sleep(4500);
 			// launch 1 Forward
-			for (int i = 0; i < 1; ++i){
+			for (int i = 0; i < 2; ++i){
 				System.out.println("launching fors..");
 				forServerList.add(SL.startVM() + basePort);
 			}
@@ -108,10 +111,7 @@ public class Server extends UnicastRemoteObject
             try {
                 curAppIntf = (ServerIntf) Naming.lookup(String.format("//%s:%d/server", selfIP, RPCPort));
 				retry = false;
-				System.out.println("once here...");
 			}catch (Exception e){
-//                e.printStackTrace();
-//                System.out.println("Retry..");
 				Thread.sleep(100);
 				retry = true;
 				continue;
