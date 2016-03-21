@@ -1,35 +1,145 @@
 /* Sample code for basic Server */
 
-public class Server {
-	private static final int VM_FOR_LAUNCHING = 1;
+import java.rmi.ConnectException;
+import java.rmi.Naming;
+import java.rmi.NotBoundException;
+import java.rmi.RemoteException;
+import java.rmi.registry.LocateRegistry;
+import java.rmi.server.UnicastRemoteObject;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.NoSuchElementException;
+
+public class Server extends UnicastRemoteObject
+        implements ServerIntf  {
+	private static final int MASTER = 1;
+	private static final Boolean FORWARDER = true;
+	private static final Boolean PROCESSOR = false;
+//	private static HashMap<Integer, Boolean> AllServerList;
+	private static ArrayList<Integer> appServerList;
+	private static ArrayList<Integer> forServerList;
+	private static ServerIntf masterIntf;
+	private static ServerIntf appIntf;
+	private static Server server;
+	private static int selfRPCPort;
+	private static boolean selfRole;
+	private static String selfIP;
+	private static ServerLib SL;
+	private static int curRound = 0;
+	private static int numOfApps = 3;
+	protected Server() throws RemoteException {
+	}
+
 	public static void main ( String args[] ) throws Exception {
 		if (args.length != 3) throw new Exception("Need 3 args: <cloud_ip> <cloud_port>");
-		ServerLib SL = new ServerLib( args[0], Integer.parseInt(args[1]) );
-
-		System.out.println("---0----" + args[0]);
-		System.out.println("---1----" + args[1]);
-		System.out.println("---2----" + args[2]);
-
+		selfIP = args[0];
 		int vmId = Integer.parseInt(args[2]);
+		int basePort = Integer.parseInt(args[1]);
+		selfRPCPort = basePort + vmId;
+		System.out.println("selfPRPCPort:" + selfRPCPort);
+		SL = new ServerLib( args[0], basePort);
+//		System.out.println("---0----" + selfIP);
+		System.out.println("---basePort----" + basePort);
+		System.out.println("---vmID----" + vmId);
 
-		// register with load balancer so requests are sent to this server
-		SL.register_frontend();
+		LocateRegistry.createRegistry(selfRPCPort);
+		server = new Server();
+		Naming.rebind(String.format("//%s:%d/server", selfIP, selfRPCPort), server);
+		float curTime = SL.getTime();
+		System.out.println("Current time is " + curTime);
 
-		// vm No.1 is responsible for instantiating enough vms
-		if (vmId == VM_FOR_LAUNCHING){
-			// get # of current needed vms
-			float curTime = SL.getTime();
-			int num = getVMNumber(curTime);
-			for (int i = 0; i < num-1; ++i){
-				SL.startVM();
+		if (vmId == MASTER){
+			selfRole = FORWARDER;
+			appServerList = new ArrayList<>();
+			forServerList = new ArrayList<>();
+			// provision machines according to current time
+			// current master is not responsible for front work.
+
+//			float curTime = SL.getTime();
+//			int num = getVMNumber(curTime);
+//			for (int i = 0; i < num-1; ++i){
+//				SL.startVM();
+//			}
+
+			// launch 3 appServer
+			for (int i = 0; i < 3; ++i){
+				System.out.println("launching apps..");
+				appServerList.add(SL.startVM() + basePort);
+			}
+			Thread.sleep(4500);
+			// launch 1 Forward
+			for (int i = 0; i < 1; ++i){
+				System.out.println("launching fors..");
+				forServerList.add(SL.startVM() + basePort);
+			}
+		} else { // non-masetr // ask for role.
+			try {
+				masterIntf = (ServerIntf) Naming.lookup(String.format("//%s:%d/server", selfIP, basePort +1));
+			} catch (NotBoundException e) {
+				e.printStackTrace();
+			}
+			selfRole = masterIntf.getRole(selfRPCPort);
+        }
+
+
+		if (selfRole == FORWARDER){
+			if (vmId != 1) {// not master vm
+				appServerList = masterIntf.getAppServerList();
+			}
+			SL.register_frontend();
+			while (true){
+				Cloud.FrontEndOps.Request r = SL.getNextRequest();
+				long timeConsumed = forwardReq(r);
+				System.out.println("timeConsumed:" + timeConsumed);
+			}
+		} else { // processor
+			while (true){
+
 			}
 		}
+	}
 
-		// main loop
-		while (true) {
-			Cloud.FrontEndOps.Request r = SL.getNextRequest();
-			SL.processRequest( r );
+
+	public static long forwardReq(Cloud.FrontEndOps.Request r) throws Exception{
+		int RPCPort = appServerList.get(curRound++);
+		boolean retry = true;
+		ServerIntf curAppIntf = null;
+		while (retry){
+            try {
+                curAppIntf = (ServerIntf) Naming.lookup(String.format("//%s:%d/server", selfIP, RPCPort));
+				retry = false;
+				System.out.println("once here...");
+			}catch (Exception e){
+//                e.printStackTrace();
+//                System.out.println("Retry..");
+				Thread.sleep(100);
+				retry = true;
+				continue;
+            }
 		}
+		long timeConsumed = curAppIntf.processReq(r);
+		curRound %= numOfApps;
+		return timeConsumed;
+	}
+
+
+	public ArrayList<Integer> getAppServerList() throws RemoteException{
+		return appServerList;
+	}
+
+	public boolean getRole(int RPCport) throws RemoteException{
+		// todo: what if a valid port???
+		if (appServerList.contains(RPCport)){
+			return PROCESSOR;
+		}
+		return FORWARDER;
+	}
+
+	public long processReq(Cloud.FrontEndOps.Request r) throws RemoteException{
+		long start = System.currentTimeMillis();
+		SL.processRequest(r);
+		long timeConsumed = System.currentTimeMillis() - start;
+		return timeConsumed;
 	}
 
 	/**
