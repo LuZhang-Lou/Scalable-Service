@@ -178,7 +178,7 @@ public class Server extends UnicastRemoteObject
 			ret[0] = 3;
 			ret[1] = 4;
 		} else {
-			ret[0] = 5;
+			ret[0] = 4;
 			ret[1] = 10;
 		}
 		return ret;
