@@ -8,7 +8,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  */
 
 public interface ServerIntf extends Remote {
-    public boolean getRole(int RPCport) throws RemoteException;
+    public Content getRole(int RPCport) throws RemoteException;
     public long processReq(Cloud.FrontEndOps.Request r) throws RemoteException;
     public ArrayList<Integer> getAppServerList() throws RemoteException;
 }

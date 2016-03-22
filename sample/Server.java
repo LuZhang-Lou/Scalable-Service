@@ -33,21 +33,20 @@ public class Server extends UnicastRemoteObject
 	public static void main ( String args[] ) throws Exception {
 		if (args.length != 3) throw new Exception("Need 3 args: <cloud_ip> <cloud_port>");
 		selfIP = args[0];
-		int vmId = Integer.parseInt(args[2]);
 		int basePort = Integer.parseInt(args[1]);
+        int vmId = Integer.parseInt(args[2]);
 		selfRPCPort = basePort + vmId;
 		System.out.println("selfPRPCPort:" + selfRPCPort);
-		SL = new ServerLib( args[0], basePort);
-//		System.out.println("---0----" + selfIP);
-		System.out.println("---basePort----" + basePort);
 		System.out.println("---vmID----" + vmId);
+
+        SL = new ServerLib(args[0], basePort);
 
 		LocateRegistry.createRegistry(selfRPCPort);
 		server = new Server();
 		Naming.rebind(String.format("//%s:%d/server", selfIP, selfRPCPort), server);
-		float curTime = SL.getTime();
-		System.out.println("Current time is " + curTime);
-		curRound = vmId % numOfApps;
+//		float curTime = SL.getTime();
+//		System.out.println("Current time is " + curTime);
+//		curRound = vmId % numOfApps;
 
 		if (vmId == MASTER){
 			selfRole = FORWARDER;
@@ -69,7 +68,7 @@ public class Server extends UnicastRemoteObject
 				appServerList.add(SL.startVM() + basePort);
 			}
 
-			Thread.sleep(4500);
+//			Thread.sleep(4500);
 			// launch 1 Forward
 			for (int i = 0; i < 2; ++i){
 				System.out.println("launching fors..");
@@ -81,14 +80,14 @@ public class Server extends UnicastRemoteObject
 			} catch (NotBoundException e) {
 				e.printStackTrace();
 			}
-			selfRole = masterIntf.getRole(selfRPCPort);
+			Content reply = masterIntf.getRole(selfRPCPort);
+            if ((selfRole = reply.role) == FORWARDER){
+                appServerList = reply.appServerList;
+            }
         }
 
 
 		if (selfRole == FORWARDER){
-			if (vmId != 1) {// not master vm
-				appServerList = masterIntf.getAppServerList();
-			}
 			SL.register_frontend();
 			while (true){
 				Cloud.FrontEndOps.Request r = SL.getNextRequest();
@@ -105,15 +104,16 @@ public class Server extends UnicastRemoteObject
 
 	public static long forwardReq(Cloud.FrontEndOps.Request r) throws Exception{
 		int RPCPort = appServerList.get(curRound++);
-		boolean retry = true;
+//		boolean retry = true;
 		ServerIntf curAppIntf = null;
-		while (retry){
+		while (true){
             try {
                 curAppIntf = (ServerIntf) Naming.lookup(String.format("//%s:%d/server", selfIP, RPCPort));
-				retry = false;
+                break;
+//				retry = false;
 			}catch (Exception e){
-				Thread.sleep(100);
-				retry = true;
+//				Thread.sleep(100);
+//				retry = true;
 				continue;
             }
 		}
@@ -127,12 +127,12 @@ public class Server extends UnicastRemoteObject
 		return appServerList;
 	}
 
-	public boolean getRole(int RPCport) throws RemoteException{
+	public Content getRole(int RPCport) throws RemoteException{
 		// todo: what if a valid port???
 		if (appServerList.contains(RPCport)){
-			return PROCESSOR;
+			return new Content(PROCESSOR);
 		}
-		return FORWARDER;
+		return new Content(FORWARDER, appServerList);
 	}
 
 	public long processReq(Cloud.FrontEndOps.Request r) throws RemoteException{
