@@ -13,6 +13,7 @@ public interface ServerIntf extends Remote {
     public ArrayList<Integer> getAppServerList() throws RemoteException;
     public void welcomeNewApp(int RPCPort) throws RemoteException;
     public void addToLocalQue(Cloud.FrontEndOps.Request r) throws Exception;
+    public void scaleOutApp(int num) throws Exception;
 }
 
 
