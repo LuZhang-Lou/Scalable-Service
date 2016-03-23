@@ -59,6 +59,10 @@ public class Server extends UnicastRemoteObject
             Thread.sleep(500);
             Cloud.FrontEndOps.Request req = SL.getNextRequest();
             startNum = SL.getQueueLength() * 2;
+            if (startNum == 2){
+                startNum = 1;
+            }
+//            startNum = SL.getQueueLength() * 2;
             System.out.println("start:"+startNum);
         }
 
@@ -67,9 +71,6 @@ public class Server extends UnicastRemoteObject
 		LocateRegistry.createRegistry(selfRPCPort);
 		server = new Server();
 		Naming.rebind(String.format("//%s:%d/server", selfIP, selfRPCPort), server);
-//		float curTime = SL.getTime();
-//		System.out.println("Current time is " + curTime);
-//		curRound = vmId % numOfApps;
 
 		if (vmId == MASTER){
 
