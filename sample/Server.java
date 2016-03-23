@@ -127,6 +127,10 @@ public class Server extends UnicastRemoteObject
 		return 0;
 	}
 
+    public void welcomeNewApp(int RPCPort) throws RemoteException{
+
+    }
+
 	public static long forwardReq(Cloud.FrontEndOps.Request r) throws Exception{
 		int RPCPort = appServerList.get(curRound);
 		ServerIntf curAppIntf = null;
