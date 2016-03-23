@@ -93,6 +93,9 @@ public class Server extends UnicastRemoteObject
 				SL.drop(r);
 			}
 			while (true){
+                while (SL.getQueueLength() > appServerList.size()){
+                    SL.dropHead();
+                }
 				Cloud.FrontEndOps.Request r = SL.getNextRequest();
 				long timeConsumed = forwardReq(r);
 				System.out.println("timeConsumed:" + timeConsumed);
