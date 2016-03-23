@@ -1,5 +1,7 @@
 /* Sample code for basic Server */
 
+import org.omg.PortableServer.REQUEST_PROCESSING_POLICY_ID;
+
 import java.rmi.ConnectException;
 import java.rmi.Naming;
 import java.rmi.NotBoundException;
@@ -7,6 +9,8 @@ import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.server.UnicastRemoteObject;
 import java.util.*;
+import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class Server extends UnicastRemoteObject
         implements ServerIntf  {
@@ -16,6 +20,7 @@ public class Server extends UnicastRemoteObject
 //	private static HashMap<Integer, Boolean> AllServerList;
 	private static ArrayList<Integer> appServerList;
 	private static ArrayList<Integer> forServerList;
+    private static ConcurrentLinkedQueue<Cloud.FrontEndOps.Request> localReqQueue;
 	private static ServerIntf masterIntf;
 	private static ServerIntf appIntf;
 	private static Server server;
@@ -43,6 +48,7 @@ public class Server extends UnicastRemoteObject
 
         SL = new ServerLib(args[0], basePort);
 
+        localReqQueue = new ConcurrentLinkedQueue<>();
 		LocateRegistry.createRegistry(selfRPCPort);
 		server = new Server();
 		Naming.rebind(String.format("//%s:%d/server", selfIP, selfRPCPort), server);
@@ -97,10 +103,9 @@ public class Server extends UnicastRemoteObject
                     SL.dropHead();
                 }
 				Cloud.FrontEndOps.Request r = SL.getNextRequest();
-				long timeConsumed = forwardReq(r);
-				System.out.println("timeConsumed:" + timeConsumed);
+                forwardReq2(r);
 
-
+                /*
                 if (vmId == 1){ // scale
 					//scaleOut()
 					System.out.println("length:" + SL.getQueueLength());
@@ -117,11 +122,18 @@ public class Server extends UnicastRemoteObject
 						}
 					}
 				}
-
+                   */
 			}
 		} else { // processor
+            Cloud.FrontEndOps.Request curReq;
 			while (true){
-
+//                System.out.println("local ReqQueue.size:" + localReqQueue.size());
+//                while (localReqQueue.size() > 4){
+//                    localReqQueue.poll();
+//                }
+                if ((curReq = localReqQueue.poll()) != null){
+                    SL.processRequest(curReq);
+                }
 			}
 		}
 	}
@@ -132,6 +144,27 @@ public class Server extends UnicastRemoteObject
 
     public void welcomeNewApp(int RPCPort) throws RemoteException{
 
+    }
+
+
+    public static void forwardReq2(Cloud.FrontEndOps.Request r) throws Exception{
+        int RPCPort = appServerList.get(curRound);
+        ServerIntf curAppIntf = null;
+        while (true){
+            try {
+                curAppIntf = (ServerIntf) Naming.lookup(String.format("//%s:%d/server", selfIP, RPCPort));
+                break;
+            }catch (Exception e){
+                continue;
+            }
+        }
+        curAppIntf.addToLocalQue(r);
+        curRound = (curRound + 1) % appServerList.size();
+    }
+
+    public void addToLocalQue(Cloud.FrontEndOps.Request r) throws Exception{
+        localReqQueue.add(r);
+        System.out.println("localReqQueue.size:"+localReqQueue.size());
     }
 
 	public static long forwardReq(Cloud.FrontEndOps.Request r) throws Exception{
