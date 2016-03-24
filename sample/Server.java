@@ -34,7 +34,7 @@ public class Server extends UnicastRemoteObject
 	private static LinkedList<Long> stats;
 	private static long appLastScaleoutTime;
     private static long forLastScaleoutTime;
-    private static final long APP_ADD_COOL_DOWN_INTERVAL = 5;
+    private static final long APP_ADD_COOL_DOWN_INTERVAL = 10;
     private static final long FOR_ADD_COOL_DOWN_INTERVAL = 8;
     private static final long MAX_FORWARDER_NUM = 5;
     private static int startNum = 1;
@@ -70,18 +70,14 @@ public class Server extends UnicastRemoteObject
             if (interval < 300){
                 startNum = 5;
             } else if (interval < 650){
-                startNum = 4;
+                startNum = 3;
             } else if (interval < 2000){
                 startNum = 2;
             } else {
                 startNum = 1;
             }
 
-
-
             System.out.println("start:"+startNum);
-            startNum = Math.max(startNum, 10);
-            startNum = Math.min(startNum, 4);
         }
 
 
@@ -91,12 +87,10 @@ public class Server extends UnicastRemoteObject
 		Naming.rebind(String.format("//%s:%d/server", selfIP, selfRPCPort), server);
 
 		if (vmId == MASTER){
-
 			selfRole = FORWARDER;
 			forServerList = new ArrayList<>();
 			stats = new LinkedList<>();
 			// provision machines according to current time
-
 
 			// launch 3 appServer
 			for (int i = 0; i < startNum-1; ++i){
@@ -106,10 +100,10 @@ public class Server extends UnicastRemoteObject
             appLastScaleoutTime = System.currentTimeMillis();
 
 			// launch 1 Forward
-			for (int i = 0; i < 1; ++i){
-				System.out.println("launching fors..");
-				forServerList.add(SL.startVM() + basePort);
-			}
+//			for (int i = 0; i < 1; ++i){
+//				System.out.println("launching fors..");
+//				forServerList.add(SL.startVM() + basePort);
+//			}
             forLastScaleoutTime = System.currentTimeMillis();
 
 
@@ -139,7 +133,7 @@ public class Server extends UnicastRemoteObject
 			}
 			while (true){
                 int globalQueueLen = SL.getQueueLength();
-                while (globalQueueLen > appServerList.size() ){
+                while (globalQueueLen > appServerList.size()){
                     System.out.println("drop on forwarder:" + globalQueueLen);
                     SL.dropHead();
                     globalQueueLen--;
@@ -228,6 +222,7 @@ public class Server extends UnicastRemoteObject
                 continue;
             }
         }
+        System.out.println("send to:" + curRound);
         curAppIntf.addToLocalQue(r);
         curRound = (curRound + 1) % appServerList.size();
     }
