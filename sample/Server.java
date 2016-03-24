@@ -170,18 +170,11 @@ public class Server extends UnicastRemoteObject
             Cloud.FrontEndOps.Request curReq;
             long lastTime = System.currentTimeMillis();
 			while (true){
-//                while (localReqQueue.size() > 1){
                 if (localReqQueue.size() > 1){
                     SL.processRequest(localReqQueue.poll());
-//                    Cloud.FrontEndOps.Request r = localReqQueue.pollLast();
-//                    if (localReqQueue.size() > 1) {
                     if (interval < 600) {
                         Cloud.FrontEndOps.Request r = localReqQueue.poll();
                         SL.drop(r);
-                        System.out.println("lookathereid:" + r.id + " drop");
-                    }
-                    if (localReqQueue.size() != 0) {
-                        System.out.println("localReqQueue.size:" + localReqQueue.size());
                     }
                     if (System.currentTimeMillis() - lastTime > APP_ADD_COOL_DOWN_INTERVAL) {
                         lastTime = System.currentTimeMillis();
@@ -194,35 +187,25 @@ public class Server extends UnicastRemoteObject
                 }
                 if ((curReq = localReqQueue.poll()) != null){
                     SL.processRequest(curReq);
-//                    System.out.println("lookathereid:"+curReq.id+" process");
-                    if (localReqQueue.size() != 0) {
-                        System.out.println("local ReqQueue.size:" + localReqQueue.size());
-                    }
                 }
-
-//                while (localReqQueue.size() > 2){
-//                    SL.drop(localReqQueue.poll());
-//                }
 
 
 			}
 		}
 	}
 
-    // todo: set a scaleup flog, return instantly.
 	public void scaleOutApp(int num) throws Exception{
-        System.out.println("Receiveing scale up app request:" + num);
+        System.out.println("Receiving scale out app request:" + num);
         int curNum = appServerList.size() + futureAppServerList.size();
         if (curNum <= MAX_APP_NUM &&
                 System.currentTimeMillis() - appLastScaleoutTime > APP_ADD_COOL_DOWN_INTERVAL) {
-            System.out.println("scaleup accpeted. : interval:" + (System.currentTimeMillis() - appLastScaleoutTime));
             appLastScaleoutTime = System.currentTimeMillis();
             for (int i = 0; i < num && (curNum + i < MAX_APP_NUM); ++i) {
-                System.out.println("Scale up App");
+                System.out.println("Scale out App");
                 futureAppServerList.put(SL.startVM() + basePort, true);
             }
         }else {
-            System.out.println("scaleup refused. : interval:" + (System.currentTimeMillis() - appLastScaleoutTime));
+            System.out.println("scaleout refused. : interval:" + (System.currentTimeMillis() - appLastScaleoutTime));
         }
 	}
 
