@@ -53,6 +53,7 @@ public class Server extends UnicastRemoteObject
         if (vmId == MASTER){
             appServerList = new ArrayList<>();
             futureAppServerList = new ConcurrentHashMap<>();
+            forServerList = Collections.synchronizedList(new ArrayList<Integer>());
 
             //launch first vm first.
             futureAppServerList.put(SL.startVM() + basePort, true);
@@ -94,7 +95,7 @@ public class Server extends UnicastRemoteObject
         // launch other start vms.
 		if (vmId == MASTER){
 			selfRole = FORWARDER;
-            forServerList = Collections.synchronizedList(new ArrayList<Integer>());
+//            forServerList = Collections.synchronizedList(new ArrayList<Integer>());
 
             futureForServerList = new ConcurrentHashMap<>();
 
