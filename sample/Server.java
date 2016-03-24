@@ -94,7 +94,6 @@ public class Server extends UnicastRemoteObject
         // launch other start vms.
 		if (vmId == MASTER){
 			selfRole = FORWARDER;
-//			forServerList = new ArrayList<>();
             forServerList = Collections.synchronizedList(new ArrayList<Integer>());
 
             futureForServerList = new ConcurrentHashMap<>();
@@ -117,8 +116,6 @@ public class Server extends UnicastRemoteObject
 
                     Registry reg = LocateRegistry.getRegistry(selfIP, basePort);
                     masterIntf = (ServerIntf) reg.lookup("//localhost/no"+String.valueOf(basePort+1));
-
-//                    masterIntf = (ServerIntf) Naming.lookup(String.format("//%s:%d/server", selfIP, basePort + 1));
                     break;
                 } catch (Exception e) {
                     // e.printStackTrace();
@@ -129,16 +126,11 @@ public class Server extends UnicastRemoteObject
             if ((selfRole = reply.role) == FORWARDER){
                 System.out.println("==========Forwarder");
                 appServerList = reply.appServerList;
-                if (appServerList.size() == 0){
-                    System.out.println("WTF???????????????");
-                }
-
             } else {
                 interval = reply.interval;
                 System.out.println("==========App, interval:" + interval);
             }
         }
-        System.out.println("Ready to work");
 
 		if (selfRole == FORWARDER){
             if (vmId != MASTER) {
@@ -146,15 +138,10 @@ public class Server extends UnicastRemoteObject
             }
             while (vmId == MASTER && SL.getStatusVM(2) == Cloud.CloudOps.VMStatus.Booting && appServerList.size() == 0){
                 SL.dropHead();
-//                System.out.println("droppingwhenbooting");
             }
-            int cnt = 0;
 			while (true){
                 if (vmId == MASTER){
-                    cnt++;
-                    System.out.println(cnt + " I'm master...SL.getQueueLength():" + SL.getQueueLength());
                     while (SL.getQueueLength() > 3 ){
-                        System.out.println("global Qlen:"+SL.getQueueLength());
                         SL.dropHead();
                     }
                     Cloud.FrontEndOps.Request r = SL.getNextRequest();
@@ -164,17 +151,12 @@ public class Server extends UnicastRemoteObject
                     forwardReq2(r);
 
                     int queueLen = SL.getQueueLength();
-                    if (queueLen != 0){
-                        System.out.println("global ql:" + queueLen);
-                    }
                     if (queueLen > appServerList.size() * 2){
                         scaleOutFor(1);
                     }
 
                 } else {
-                    System.out.println("SL.getQueueLength():" + SL.getQueueLength());
                     while (SL.getQueueLength() > 3 ){
-                        System.out.println("global Qlen:"+SL.getQueueLength());
                         SL.dropHead();
                     }
                     Cloud.FrontEndOps.Request r = SL.getNextRequest();
