@@ -26,6 +26,7 @@ public class Server extends UnicastRemoteObject
 	private static int curRound = 0;
 	private static long appLastScaleoutTime;
     private static long forLastScaleoutTime;
+    private static long interval = 1000;
     private static final long APP_ADD_COOL_DOWN_INTERVAL = 10000;
     private static final long FOR_ADD_COOL_DOWN_INTERVAL = 20000;
     private static final long MAX_FORWARDER_NUM = 0;
@@ -65,7 +66,7 @@ public class Server extends UnicastRemoteObject
             long time2 = System.currentTimeMillis();
 
 
-            long interval = time2-time1;
+            interval = time2-time1;
             System.out.println("time2-time1:" + interval);
             if (interval < 150){
                 startNum = 6;
@@ -133,7 +134,8 @@ public class Server extends UnicastRemoteObject
                 }
 
             } else {
-                System.out.println("==========App");
+                interval = reply.interval;
+                System.out.println("==========App, interval:" + interval);
             }
         }
         System.out.println("Ready to work");
@@ -155,14 +157,12 @@ public class Server extends UnicastRemoteObject
                         System.out.println("global Qlen:"+SL.getQueueLength());
                         SL.dropHead();
                     }
-                    System.out.println("abcdefg");
                     Cloud.FrontEndOps.Request r = SL.getNextRequest();
                     if (r == null){
                         continue;
                     }
                     forwardReq2(r);
 
-                    System.out.println("hijklmn");
                     int queueLen = SL.getQueueLength();
                     if (queueLen != 0){
                         System.out.println("global ql:" + queueLen);
@@ -192,7 +192,8 @@ public class Server extends UnicastRemoteObject
                 if (localReqQueue.size() > 1){
                     SL.processRequest(localReqQueue.poll());
 //                    Cloud.FrontEndOps.Request r = localReqQueue.pollLast();
-                    if (localReqQueue.size() > 1) {
+//                    if (localReqQueue.size() > 1) {
+                    if (interval < 600) {
                         Cloud.FrontEndOps.Request r = localReqQueue.poll();
                         SL.drop(r);
                         System.out.println("lookathereid:" + r.id + " drop");
@@ -295,21 +296,20 @@ public class Server extends UnicastRemoteObject
             try {
                 futureAppServerList.remove(newRPCport);
                 appServerList.add(newRPCport);
-                System.out.println("appServerList.size()=="+appServerList.size());
-                System.out.println("add successfully");
                 for (int i = 0; i < forServerList.size(); ++i){
                     int rpcPort = forServerList.get(i);
 //                for (int rpcPort : forServerList) {
                     Registry reg = LocateRegistry.getRegistry(selfIP, basePort);
                     ServerIntf curForIntf = (ServerIntf) reg.lookup("//localhost/no"+rpcPort);
-                    System.out.println("during successfully");
+                    System.out.println("during successflly");
 //                    ServerIntf curForIntf = (ServerIntf) Naming.lookup(String.format("//%s:%d/server", selfIP, rpcPort));
                     curForIntf.welcomeNewApp(newRPCport);
                 }
             } catch (Exception e) {
                 e.printStackTrace();
             } finally{
-                return new Content(PROCESSOR);
+                System.out.println("give interval:" + interval);
+                return new Content(PROCESSOR, interval);
             }
         }
         // forwarder
