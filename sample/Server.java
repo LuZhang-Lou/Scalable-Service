@@ -213,7 +213,7 @@ public class Server extends UnicastRemoteObject
         System.out.println("Check whetther to scaleup forwarder");
         if (forServerList.size() + futureForServerList.size() <= MAX_FORWARDER_NUM &&
                 System.currentTimeMillis() - forLastScaleoutTime > FOR_ADD_COOL_DOWN_INTERVAL) {
-            System.out.println("Scalue up Forwarder");
+            System.out.println("Scalue out Forwarder");
             futureForServerList.put(SL.startVM() + basePort, true);
             forLastScaleoutTime = System.currentTimeMillis();
         }
@@ -228,25 +228,19 @@ public class Server extends UnicastRemoteObject
         while (appServerList.size()==0){
             System.out.println("appServerList.size()==0");
         }
-        System.out.println("in forwardReq1");
         int curPort = appServerList.get(curRound);
         ServerIntf curAppIntf = null;
         while (true){
             try {
-
                 Registry reg = LocateRegistry.getRegistry(selfIP, basePort);
                 curAppIntf = (ServerIntf) reg.lookup("//localhost/no"+curPort);
-
-//                curAppIntf = (ServerIntf) Naming.lookup(String.format("//%s:%d/server", selfIP, curPort));
                 break;
             }catch (Exception e){
                 e.printStackTrace();
                 continue;
             }
         }
-        System.out.println("out of loop in forward");
         curAppIntf.addToLocalQue(r);
-        System.out.println("lookathereid:"+r.id+" forward to:"+(curPort-basePort));
         curRound = (curRound + 1) % appServerList.size();
     }
 
@@ -263,11 +257,8 @@ public class Server extends UnicastRemoteObject
                 appServerList.add(newRPCport);
                 for (int i = 0; i < forServerList.size(); ++i){
                     int rpcPort = forServerList.get(i);
-//                for (int rpcPort : forServerList) {
                     Registry reg = LocateRegistry.getRegistry(selfIP, basePort);
                     ServerIntf curForIntf = (ServerIntf) reg.lookup("//localhost/no"+rpcPort);
-                    System.out.println("during successflly");
-//                    ServerIntf curForIntf = (ServerIntf) Naming.lookup(String.format("//%s:%d/server", selfIP, rpcPort));
                     curForIntf.welcomeNewApp(newRPCport);
                 }
             } catch (Exception e) {
