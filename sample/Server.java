@@ -117,7 +117,7 @@ public class Server extends UnicastRemoteObject
                     masterIntf = (ServerIntf) Naming.lookup(String.format("//%s:%d/server", selfIP, basePort + 1));
                     break;
                 } catch (Exception e) {
-                    e.printStackTrace();
+//                    e.printStackTrace();
                     continue;
                 }
             }
