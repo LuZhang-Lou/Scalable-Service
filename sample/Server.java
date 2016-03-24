@@ -31,14 +31,12 @@ public class Server extends UnicastRemoteObject
 	private static String selfIP;
 	private static ServerLib SL;
 	private static int curRound = 0;
-//	private static int numOfApps = 3; // 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19 20 21 22  23
-	private static byte[] appInitConf = {2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 6, 6, 6, 6};
-	private static byte[] forInitConf = {1, 1, 1, 1, 1, 1, 2, 2, 4, 4, 4, 4, 2, 2, 2, 2, 4, 4, 4, 4, 6, 6, 6, 6};
 	private static LinkedList<Long> stats;
 	private static long appLastScaleoutTime;
     private static long forLastScaleoutTime;
     private static final long APP_ADD_COOL_DOWN_INTERVAL = 5;
-    private static final long FOR_ADD_COOL_DOWN_INTERVAL = 5;
+    private static final long FOR_ADD_COOL_DOWN_INTERVAL = 8;
+    private static final long MAX_FORWARDER_NUM = 5;
     private static int startNum = 1;
     private static long systemStartTime;
 	protected Server() throws RemoteException {
@@ -66,16 +64,24 @@ public class Server extends UnicastRemoteObject
             SL.dropHead();
             while (SL.getQueueLength() == 0);
             long time2 = System.currentTimeMillis();
+            long interval = time2-time1;
+            System.out.println("time2-time1:" + interval);
+//            startNum = (int)(1000/(time2 - time1));
+            if (interval < 300){
+                startNum = 5;
+            } else if (interval < 650){
+                startNum = 4;
+            } else if (interval < 2000){
+                startNum = 2;
+            } else {
+                startNum = 1;
+            }
 
-            startNum = (int)(1000/(time2 - time1));
 
-//            Thread.sleep(1000);
-//            startNum = SL.getQueueLength();
-//            if (startNum == 2){
-//                startNum = 1;
-//            }
+
             System.out.println("start:"+startNum);
-            startNum = Math.min(startNum, 10);
+            startNum = Math.max(startNum, 10);
+            startNum = Math.min(startNum, 4);
         }
 
 
@@ -90,10 +96,7 @@ public class Server extends UnicastRemoteObject
 			forServerList = new ArrayList<>();
 			stats = new LinkedList<>();
 			// provision machines according to current time
-			// current master is not responsible for front work.
 
-//			float curTime = SL.getTime();
-//			byte[] nums = getVMNumber(curTime);
 
 			// launch 3 appServer
 			for (int i = 0; i < startNum-1; ++i){
@@ -102,7 +105,6 @@ public class Server extends UnicastRemoteObject
 			}
             appLastScaleoutTime = System.currentTimeMillis();
 
-//			Thread.sleep(4500);
 			// launch 1 Forward
 			for (int i = 0; i < 1; ++i){
 				System.out.println("launching fors..");
@@ -136,16 +138,22 @@ public class Server extends UnicastRemoteObject
 				SL.drop(r);
 			}
 			while (true){
-                while (SL.getQueueLength() > appServerList.size()){
+                int globalQueueLen = SL.getQueueLength();
+                while (globalQueueLen > appServerList.size() ){
+                    System.out.println("drop on forwarder:" + globalQueueLen);
                     SL.dropHead();
+                    globalQueueLen--;
                 }
 				Cloud.FrontEndOps.Request r = SL.getNextRequest();
                 forwardReq2(r);
+//                System.out.println("forwarder joins..");
 
                 if (vmId == 1){
                     int queueLen = SL.getQueueLength();
-                    System.out.println("glocal queue len:" + queueLen);
-                    if (queueLen > 4){
+                    if (queueLen != 0){
+                        System.out.println("global ql:" + queueLen);
+                    }
+                    if (queueLen > appServerList.size()){
                         scaleOutFor(1);
                     }
                 }
@@ -155,18 +163,21 @@ public class Server extends UnicastRemoteObject
             long lastTime = System.currentTimeMillis();
 			while (true){
 //                System.out.println("local ReqQueue.size:" + localReqQueue.size());
-                int num = 0;
                 while (localReqQueue.size() > 2){
                     System.out.println("localReqQueue.size:"+localReqQueue.size());
-                    if (System.currentTimeMillis() - lastTime > 5000) {
-                        System.out.println("asking for scale up app");
+                    if (System.currentTimeMillis() - lastTime > APP_ADD_COOL_DOWN_INTERVAL) {
                         lastTime = System.currentTimeMillis();
-                        masterIntf.scaleOutApp((int)((localReqQueue.size()-2)/3));
+                        int scaleUpNum = (int)((localReqQueue.size())/3);
+                        System.out.println("asking for scale up app:" + scaleUpNum);
+                        if (scaleUpNum !=0) {
+                            masterIntf.scaleOutApp(scaleUpNum);
+                        }
                     }
-                    Cloud.FrontEndOps.Request reqToDrop = localReqQueue.poll();
-                    SL.drop(reqToDrop);
+                    System.out.println("drop on app");
+                    SL.drop(localReqQueue.poll());
                 }
                 if ((curReq = localReqQueue.poll()) != null){
+//                    System.out.println("join battle...");
                     SL.processRequest(curReq);
                 }
 			}
@@ -194,7 +205,7 @@ public class Server extends UnicastRemoteObject
 
     public static void scaleOutFor(int num) {
         System.out.println("Check whetther to scaleup forwarder");
-        if (System.currentTimeMillis() - forLastScaleoutTime > FOR_ADD_COOL_DOWN_INTERVAL) {
+        if (forServerList.size() < MAX_FORWARDER_NUM && System.currentTimeMillis() - forLastScaleoutTime > FOR_ADD_COOL_DOWN_INTERVAL) {
             System.out.println("Scalue up Forwarder");
             forServerList.add(SL.startVM() + basePort);
             forLastScaleoutTime = System.currentTimeMillis();
