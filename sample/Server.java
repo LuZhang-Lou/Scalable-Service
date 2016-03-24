@@ -226,7 +226,8 @@ public class Server extends UnicastRemoteObject
 
     public static void forwardReq2(Cloud.FrontEndOps.Request r) throws Exception{
         while (appServerList.size()==0){
-            System.out.println("appServerList.size()==0");
+            Thread.sleep(5);
+//            System.out.println("appServerList.size()==0");
         }
         int curPort = appServerList.get(curRound);
         ServerIntf curAppIntf = null;
