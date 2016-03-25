@@ -70,12 +70,14 @@ public class Server extends UnicastRemoteObject
                 futureAppServerList = new ConcurrentHashMap<>();
                 forServerList = Collections.synchronizedList(new ArrayList<Integer>());
 
+                // this will cause to lose....
                 // start cache first
                 SL.startVM();
 
                 //launch first vm first.
                 futureAppServerList.put(SL.startVM() + basePort, true);
                 SL.register_frontend();
+
 
                 // get # of start vm
                 while (SL.getQueueLength() == 0) ;
@@ -302,12 +304,13 @@ public class Server extends UnicastRemoteObject
 
 
 
-    public synchronized String get(String var1) throws RemoteException {
+    public synchronized String get(String key) throws RemoteException {
 
-        return DB.get(var1);
-        /*
+//        return DB.get(var1);
+        System.out.println("ask:" + key);
+
         // if in cache. get, or fetch.
-        String trimmedKey = var1.trim();
+        String trimmedKey = key.trim();
         if (cache.containsKey(trimmedKey)){
             return cache.get(trimmedKey);
         } else{
@@ -315,12 +318,12 @@ public class Server extends UnicastRemoteObject
             cache.put(trimmedKey, value);
             return value;
         }
-        */
+
     }
 
     public synchronized boolean set(String key, String value, String password) throws RemoteException {
-        return DB.set(key, value, password);
-        /*
+//        return DB.set(key, value, password);
+
         // write through
         boolean ret = DB.set(key, value, password);
         // if success, insert in cache
@@ -329,12 +332,15 @@ public class Server extends UnicastRemoteObject
             return true;
         }
         return false;
-        */
+
     }
 
     public synchronized boolean transaction(String item, float price, int qty) throws RemoteException {
-        return DB.transaction(item, price, qty);
+        boolean ret = DB.transaction(item, price, qty);
+        cache.remove(item);
         // update: add change to cache
+
+        return ret;
     }
 
 
