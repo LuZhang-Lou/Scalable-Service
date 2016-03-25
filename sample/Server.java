@@ -8,8 +8,9 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 
 public class Server extends UnicastRemoteObject
-        implements ServerIntf  {
+        implements ServerIntf, Cloud.DatabaseOps  {
 	private static final int MASTER = 1;
+    private static final int CACHE = 2;
 	private static final Boolean FORWARDER = true;
 	private static final Boolean PROCESSOR = false;
 	private static ConcurrentHashMap<Integer, Boolean> futureAppServerList;
@@ -33,6 +34,14 @@ public class Server extends UnicastRemoteObject
     private static final long MAX_APP_NUM = 12;
     private static int startNum = 1;
     private static int startForNum = 1;
+
+    // especially for cache
+    private static LRUCache<String, String> cache;
+    private static Cloud.DatabaseOps DB = null;
+    private static Cloud.DatabaseOps cacheIntf = null;
+
+
+
 	protected Server() throws RemoteException {
 	}
 
@@ -50,149 +59,162 @@ public class Server extends UnicastRemoteObject
         registry.bind("//localhost/no"+selfRPCPort, new Server());
         SL = new ServerLib(args[0], basePort);
 
-        if (vmId == MASTER){
-            appServerList = new ArrayList<>();
-            futureAppServerList = new ConcurrentHashMap<>();
-            forServerList = Collections.synchronizedList(new ArrayList<Integer>());
 
-            //launch first vm first.
-            futureAppServerList.put(SL.startVM() + basePort, true);
-            SL.register_frontend();
+        if (vmId == CACHE){
+            cache = new LRUCache<String, String>(64);
+            DB = SL.getDB();
 
-            // get # of start vm
-            while (SL.getQueueLength() == 0);
-            long time1 = System.currentTimeMillis();
-            SL.dropHead();
-            while (SL.getQueueLength() == 0);
-            long time2 = System.currentTimeMillis();
+        }else {
+            if (vmId == MASTER) {
+                appServerList = new ArrayList<>();
+                futureAppServerList = new ConcurrentHashMap<>();
+                forServerList = Collections.synchronizedList(new ArrayList<Integer>());
+
+                // start cache first
+                SL.startVM();
+
+                //launch first vm first.
+                futureAppServerList.put(SL.startVM() + basePort, true);
+                SL.register_frontend();
+
+                // get # of start vm
+                while (SL.getQueueLength() == 0) ;
+                long time1 = System.currentTimeMillis();
+                SL.dropHead();
+                while (SL.getQueueLength() == 0) ;
+                long time2 = System.currentTimeMillis();
 
 
-            interval = time2-time1;
-            System.out.println("time2-time1:" + interval);
-            if (interval < 150){
-                startNum = 6;
-                startForNum = 0;
-            }else if (interval < 300){
-                startNum = 5;
-                startForNum = 0;
-            } else if (interval < 650){
-                startNum = 4;
-                startForNum = 0;
-            } else if (interval < 2000){
-                startNum = 2;
-                startForNum = 0;
-            } else {
-                startNum = 1;
-                startForNum = 0;
+                interval = time2 - time1;
+                System.out.println("time2-time1:" + interval);
+                if (interval < 150) {
+                    startNum = 6;
+                    startForNum = 0;
+                } else if (interval < 300) {
+                    startNum = 5;
+                    startForNum = 0;
+                } else if (interval < 650) {
+                    startNum = 4;
+                    startForNum = 0;
+                } else if (interval < 2000) {
+                    startNum = 2;
+                    startForNum = 0;
+                } else {
+                    startNum = 1;
+                    startForNum = 0;
+                }
+                System.out.println("interval:" + interval + " start:" + startNum + " startFor:" + startForNum);
+
             }
-            System.out.println("interval:" + interval + " start:"+startNum + " startFor:" + startForNum );
 
-        }
+            localReqQueue = new ConcurrentLinkedDeque<>();
 
-        localReqQueue = new ConcurrentLinkedDeque<>();
-
-
-        // launch other start vms.
-		if (vmId == MASTER){
-			selfRole = FORWARDER;
+            // launch other start vms.
+            if (vmId == MASTER) {
+                selfRole = FORWARDER;
 //            forServerList = Collections.synchronizedList(new ArrayList<Integer>());
 
-            futureForServerList = new ConcurrentHashMap<>();
+                futureForServerList = new ConcurrentHashMap<>();
 
-			for (int i = 0; i < startNum-1; ++i){
-                futureAppServerList.put(SL.startVM() + basePort, true);
-			}
-            appLastScaleoutTime = System.currentTimeMillis();
-
-            // launch Forward servers
-            for (int i = 0; i < startForNum; ++i){
-				futureForServerList.put(SL.startVM() + basePort, true);
-			}
-            forLastScaleoutTime = System.currentTimeMillis();
-
-
-		} else { // non-masetr // ask for role.
-            while (true) {
-                try {
-
-                    Registry reg = LocateRegistry.getRegistry(selfIP, basePort);
-                    masterIntf = (ServerIntf) reg.lookup("//localhost/no"+String.valueOf(basePort+1));
-                    break;
-                } catch (Exception e) {
-                    // e.printStackTrace();
-                    continue;
+                for (int i = 0; i < startNum - 1; ++i) {
+                    futureAppServerList.put(SL.startVM() + basePort, true);
                 }
-            }
-			Content reply = masterIntf.getRole(selfRPCPort);
-            if ((selfRole = reply.role) == FORWARDER){
-                System.out.println("==========Forwarder");
-                appServerList = reply.appServerList;
-            } else {
-                interval = reply.interval;
-                System.out.println("==========App, interval:" + interval);
-            }
-        }
+                appLastScaleoutTime = System.currentTimeMillis();
 
-		if (selfRole == FORWARDER){
-            if (vmId != MASTER) {
-                SL.register_frontend();
-            }
-            while (vmId == MASTER && SL.getStatusVM(2) == Cloud.CloudOps.VMStatus.Booting && appServerList.size() == 0){
-                SL.dropHead();
-            }
-			while (true){
-                if (vmId == MASTER){
-                    while (SL.getQueueLength() > 3 ){
-                        SL.dropHead();
-                    }
-                    Cloud.FrontEndOps.Request r = SL.getNextRequest();
-                    if (r == null){
+                // launch Forward servers
+                for (int i = 0; i < startForNum; ++i) {
+                    futureForServerList.put(SL.startVM() + basePort, true);
+                }
+                forLastScaleoutTime = System.currentTimeMillis();
+
+
+            } else { // non-masetr // ask for role.
+                while (true) {
+                    try {
+
+                        Registry reg = LocateRegistry.getRegistry(selfIP, basePort);
+                        masterIntf = (ServerIntf) reg.lookup("//localhost/no" + String.valueOf(basePort + 1));
+                        break;
+                    } catch (Exception e) {
+                        // e.printStackTrace();
                         continue;
                     }
-                    forwardReq2(r);
-
-                    int queueLen = SL.getQueueLength();
-                    if (queueLen > appServerList.size() * 2){
-                        scaleOutFor(1);
-                    }
-
+                }
+                Content reply = masterIntf.getRole(selfRPCPort);
+                if ((selfRole = reply.role) == FORWARDER) {
+                    System.out.println("==========Forwarder");
+                    appServerList = reply.appServerList;
                 } else {
-                    while (SL.getQueueLength() > 3 ){
-                        SL.dropHead();
-                    }
-                    Cloud.FrontEndOps.Request r = SL.getNextRequest();
-                    if (r == null){
-                        continue;
-                    }
-                    forwardReq2(r);
+                    interval = reply.interval;
+                    System.out.println("==========App, interval:" + interval);
                 }
-			}
-		} else { // processor
-            Cloud.FrontEndOps.Request curReq;
-            long lastTime = System.currentTimeMillis();
-			while (true){
-                if (localReqQueue.size() > 1){
-                    SL.processRequest(localReqQueue.poll());
-                    if (interval < 600) {
-                        Cloud.FrontEndOps.Request r = localReqQueue.poll();
-                        SL.drop(r);
+            }
+
+            if (selfRole == FORWARDER) {
+                if (vmId != MASTER) {
+                    SL.register_frontend();
+                }
+                while (vmId == MASTER && SL.getStatusVM(2) == Cloud.CloudOps.VMStatus.Booting && appServerList.size() == 0) {
+                    SL.dropHead();
+                }
+                while (true) {
+                    if (vmId == MASTER) {
+                        while (SL.getQueueLength() > 3) {
+                            SL.dropHead();
+                        }
+                        Cloud.FrontEndOps.Request r = SL.getNextRequest();
+                        if (r == null) {
+                            continue;
+                        }
+                        forwardReq2(r);
+
+                        int queueLen = SL.getQueueLength();
+                        if (queueLen > appServerList.size() * 2) {
+                            scaleOutFor(1);
+                        }
+
+                    } else {
+                        while (SL.getQueueLength() > 3) {
+                            SL.dropHead();
+                        }
+                        Cloud.FrontEndOps.Request r = SL.getNextRequest();
+                        if (r == null) {
+                            continue;
+                        }
+                        forwardReq2(r);
                     }
-                    if (System.currentTimeMillis() - lastTime > APP_ADD_COOL_DOWN_INTERVAL) {
-                        lastTime = System.currentTimeMillis();
-                        int scaleUpNum = (int)((localReqQueue.size())/2);
-                        System.out.println("asking for scale up app:" + scaleUpNum);
-                        if (scaleUpNum !=0) {
-                            masterIntf.scaleOutApp(scaleUpNum);
+                }
+            } else { // processor
+                //look up cache.
+                Registry reg = LocateRegistry.getRegistry(selfIP, basePort);
+                cacheIntf = (Cloud.DatabaseOps) reg.lookup("//localhost/no"+(2+basePort));
+
+                Cloud.FrontEndOps.Request curReq;
+                long lastTime = System.currentTimeMillis();
+                while (true) {
+                    if (localReqQueue.size() > 1) {
+                        SL.processRequest(localReqQueue.poll(), cacheIntf);
+                        if (interval < 600) {
+                            Cloud.FrontEndOps.Request r = localReqQueue.poll();
+                            SL.drop(r);
+                        }
+                        if (System.currentTimeMillis() - lastTime > APP_ADD_COOL_DOWN_INTERVAL) {
+                            lastTime = System.currentTimeMillis();
+                            int scaleUpNum = (int) ((localReqQueue.size()) / 2);
+                            System.out.println("asking for scale up app:" + scaleUpNum);
+                            if (scaleUpNum != 0) {
+                                masterIntf.scaleOutApp(scaleUpNum);
+                            }
                         }
                     }
-                }
-                if ((curReq = localReqQueue.poll()) != null){
-                    SL.processRequest(curReq);
-                }
+                    if ((curReq = localReqQueue.poll()) != null) {
+                        SL.processRequest(curReq, cacheIntf);
+                    }
 
 
-			}
-		}
+                }
+            }
+        }
 	}
 
 	public void scaleOutApp(int num) throws Exception{
@@ -277,9 +299,58 @@ public class Server extends UnicastRemoteObject
 		return new Content(FORWARDER, appServerList);
 	}
 
-	public void processReq(Cloud.FrontEndOps.Request r) throws RemoteException{
-		SL.processRequest(r);
-	}
+
+
+
+    public synchronized String get(String var1) throws RemoteException {
+
+        return DB.get(var1);
+        /*
+        // if in cache. get, or fetch.
+        String trimmedKey = var1.trim();
+        if (cache.containsKey(trimmedKey)){
+            return cache.get(trimmedKey);
+        } else{
+            String value = DB.get(trimmedKey);
+            cache.put(trimmedKey, value);
+            return value;
+        }
+        */
+    }
+
+    public synchronized boolean set(String key, String value, String password) throws RemoteException {
+        return DB.set(key, value, password);
+        /*
+        // write through
+        boolean ret = DB.set(key, value, password);
+        // if success, insert in cache
+        if (ret){
+            cache.put(key, value);
+            return true;
+        }
+        return false;
+        */
+    }
+
+    public synchronized boolean transaction(String item, float price, int qty) throws RemoteException {
+        return DB.transaction(item, price, qty);
+        // update: add change to cache
+    }
+
+
+
+    public synchronized void shutDown() throws RemoteException {
+        UnicastRemoteObject.unexportObject(this, true);
+    }
+
+    static class LRUCache<K, V> extends LinkedHashMap<K, V> {
+        int size;
+        public LRUCache(int size) {
+            // true for access order
+            super(size, 0.75f, true);
+            this.size = size;
+        }
+    }
 
 }
 
