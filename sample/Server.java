@@ -158,10 +158,15 @@ public class Server extends UnicastRemoteObject
                 }
                 while (vmId == MASTER && SL.getStatusVM(2) == Cloud.CloudOps.VMStatus.Booting && appServerList.size() == 0) {
                     SL.dropHead();
+                    // This is used to "try" to decrease the drops
+                    // Seems useles??
+                    Thread.sleep(50);
                 }
                 while (true) {
                     if (vmId == MASTER) {
-                        while (SL.getQueueLength() > 3) {
+                        // 3 is the number pass ckp2
+//                        while (SL.getQueueLength() > 3) {
+                        while (SL.getQueueLength() > 4) {
                             SL.dropHead();
                         }
                         Cloud.FrontEndOps.Request r = SL.getNextRequest();
@@ -176,7 +181,8 @@ public class Server extends UnicastRemoteObject
                         }
 
                     } else {
-                        while (SL.getQueueLength() > 3) {
+//                        while (SL.getQueueLength() > 3) {
+                        while (SL.getQueueLength() > 4) {
                             SL.dropHead();
                         }
                         Cloud.FrontEndOps.Request r = SL.getNextRequest();
