@@ -61,7 +61,7 @@ public class Server extends UnicastRemoteObject
 
 
         if (vmId == CACHE){
-            cache = new LRUCache<String, String>(64);
+            cache = new LRUCache<String, String>(512);
             DB = SL.getDB();
 
         }else {
@@ -187,12 +187,18 @@ public class Server extends UnicastRemoteObject
                     }
                 }
             } else { // processor
+                ////////////////////////////////////////////////////////////////////////////
+                ////////////////////////////////////PROCESS/////////////////////////////////
+                ////////////////////////////////////////////////////////////////////////////
                 //look up cache.
-                Registry reg = LocateRegistry.getRegistry(selfIP, basePort);
-                cacheIntf = (Cloud.DatabaseOps) reg.lookup("//localhost/no"+(2+basePort));
-
+                if (vmId == 3){
+                    Thread.sleep(150);
+//                     first vm sleeps for a while
+                }
                 Cloud.FrontEndOps.Request curReq;
                 long lastTime = System.currentTimeMillis();
+                Registry reg = LocateRegistry.getRegistry(selfIP, basePort);
+                cacheIntf = (Cloud.DatabaseOps) reg.lookup("//localhost/no"+(CACHE+basePort));
                 while (true) {
                     if (localReqQueue.size() > 1) {
                         SL.processRequest(localReqQueue.poll(), cacheIntf);
@@ -307,15 +313,27 @@ public class Server extends UnicastRemoteObject
     public synchronized String get(String key) throws RemoteException {
 
 //        return DB.get(var1);
-        System.out.println("ask:" + key);
 
         // if in cache. get, or fetch.
         String trimmedKey = key.trim();
         if (cache.containsKey(trimmedKey)){
-            return cache.get(trimmedKey);
+            String value = cache.get(trimmedKey);
+            System.out.println("hit:" + trimmedKey + " value:" + value);
+            return value;
         } else{
             String value = DB.get(trimmedKey);
             cache.put(trimmedKey, value);
+
+            // prefetch
+            if (value.equals("ITEM")){
+                String price = DB.get(trimmedKey + "_price");
+                cache.put(trimmedKey +"_price", price);
+                String qty = DB.get(trimmedKey + "_qty");
+                cache.put(trimmedKey +"_qty", qty);
+                System.out.println("prefetch:" + trimmedKey + " price:" + price + " qty:" + qty);
+            }
+
+            System.out.println("miss:" + trimmedKey + " value:" + value);
             return value;
         }
 
@@ -332,13 +350,15 @@ public class Server extends UnicastRemoteObject
             return true;
         }
         return false;
-
     }
 
     public synchronized boolean transaction(String item, float price, int qty) throws RemoteException {
         boolean ret = DB.transaction(item, price, qty);
-        cache.remove(item);
-        // update: add change to cache
+        if (ret) {
+            // update: add change to cache
+            cache.remove(item);
+        }
+        System.out.println("purchase: " + item +" qty:" + qty + "ret:" + ret);
 
         return ret;
     }
