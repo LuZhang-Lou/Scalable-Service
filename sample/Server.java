@@ -41,6 +41,7 @@ public class Server extends UnicastRemoteObject
     private static Cloud.DatabaseOps cacheIntf = null;
 
 
+    //todo: add locks
 
 	protected Server() throws RemoteException {
 	}
