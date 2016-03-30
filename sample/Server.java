@@ -28,12 +28,14 @@ public class Server extends UnicastRemoteObject
 	private static long appLastScaleoutTime;
     private static long forLastScaleoutTime;
     private static long interval = 1000;
-    private static final long APP_ADD_COOL_DOWN_INTERVAL = 10000;
-    private static final long FOR_ADD_COOL_DOWN_INTERVAL = 20000;
-    private static final long MAX_FORWARDER_NUM = 0;
+    private static final long APP_ADD_COOL_DOWN_INTERVAL = 8000;
+    private static final long FOR_ADD_COOL_DOWN_INTERVAL = 1000;
+    private static final long MAX_FORWARDER_NUM = 1;
     private static final long MAX_APP_NUM = 12;
     private static int startNum = 1;
-    private static int startForNum = 1;
+//    private static int startForNum = 1;
+    // todo: temporarily do this!!
+    private static int startForNum = 2;
 
     // especially for cache
     private static LRUCache<String, String> cache;
@@ -91,8 +93,8 @@ public class Server extends UnicastRemoteObject
                 interval = time2 - time1;
                 System.out.println("time2-time1:" + interval);
                 if (interval < 150) {
-                    startNum = 6;
-                    startForNum = 0;
+                    startNum = 7;
+                    startForNum = 1;
                 } else if (interval < 300) {
                     startNum = 5;
                     startForNum = 0;
@@ -163,12 +165,15 @@ public class Server extends UnicastRemoteObject
                     // Seems useles??
                     Thread.sleep(50);
                 }
+                int dropBCCongestion  = 0;
                 while (true) {
                     if (vmId == MASTER) {
                         // 3 is the number pass ckp2
-//                        while (SL.getQueueLength() > 3) {
-                        while (SL.getQueueLength() > 4) {
+                        while (SL.getQueueLength() > 5) {
+//                        while (SL.getQueueLength() > 4) {
                             SL.dropHead();
+                            dropBCCongestion++;
+                            System.out.println("drop b.c. congestion:" + dropBCCongestion);
                         }
                         Cloud.FrontEndOps.Request r = SL.getNextRequest();
                         if (r == null) {
@@ -177,12 +182,13 @@ public class Server extends UnicastRemoteObject
                         forwardReq2(r);
 
                         int queueLen = SL.getQueueLength();
-                        if (queueLen > appServerList.size() * 2) {
+                        if (queueLen > appServerList.size() * 1) {
                             scaleOutFor(1);
                         }
 
                     } else {
 //                        while (SL.getQueueLength() > 3) {
+                        // 4 will cause c-150 60s to drop too many requests.
                         while (SL.getQueueLength() > 4) {
                             SL.dropHead();
                         }
@@ -249,7 +255,13 @@ public class Server extends UnicastRemoteObject
 
     public static void scaleOutFor(int num) {
         System.out.println("Check whetther to scaleup forwarder");
-        if (forServerList.size() + futureForServerList.size() <= MAX_FORWARDER_NUM &&
+
+        //
+        int sum = forServerList.size() + futureForServerList.size();
+        System.out.println("forwardersize" + sum);
+
+        //
+        if (forServerList.size() + futureForServerList.size() < MAX_FORWARDER_NUM &&
                 System.currentTimeMillis() - forLastScaleoutTime > FOR_ADD_COOL_DOWN_INTERVAL) {
             System.out.println("Scalue out Forwarder");
             futureForServerList.put(SL.startVM() + basePort, true);
@@ -332,13 +344,13 @@ public class Server extends UnicastRemoteObject
             cache.put(trimmedKey, value);
 
             // prefetch
-            if (value.equals("ITEM")){
-                String price = DB.get(trimmedKey + "_price");
-                cache.put(trimmedKey +"_price", price);
-                String qty = DB.get(trimmedKey + "_qty");
-                cache.put(trimmedKey +"_qty", qty);
-                System.out.println("prefetch:" + trimmedKey + " price:" + price + " qty:" + qty);
-            }
+//            if (value.equals("ITEM")){
+//                String price = DB.get(trimmedKey + "_price");
+//                cache.put(trimmedKey +"_price", price);
+//                String qty = DB.get(trimmedKey + "_qty");
+//                cache.put(trimmedKey +"_qty", qty);
+//                System.out.println("prefetch:" + trimmedKey + " price:" + price + " qty:" + qty);
+//            }
 
             System.out.println("miss:" + trimmedKey + " value:" + value);
             return value;
