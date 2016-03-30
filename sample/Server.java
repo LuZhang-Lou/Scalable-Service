@@ -92,7 +92,10 @@ public class Server extends UnicastRemoteObject
 
                 interval = time2 - time1;
                 System.out.println("time2-time1:" + interval);
-                if (interval < 150) {
+                if (interval < 130) {
+                    startNum = 8;
+                    startForNum = 1;
+                } else if (interval < 150) {
                     startNum = 7;
                     startForNum = 1;
                 } else if (interval < 300) {
@@ -169,8 +172,8 @@ public class Server extends UnicastRemoteObject
                 while (true) {
                     if (vmId == MASTER) {
                         // 3 is the number pass ckp2
-                        while (SL.getQueueLength() > 5) {
-//                        while (SL.getQueueLength() > 4) {
+//                        while (SL.getQueueLength() > 5) {
+                        while (SL.getQueueLength() > 4) {
                             SL.dropHead();
                             dropBCCongestion++;
                             System.out.println("drop b.c. congestion:" + dropBCCongestion);
