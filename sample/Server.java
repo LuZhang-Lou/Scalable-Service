@@ -216,11 +216,21 @@ public class Server extends UnicastRemoteObject
                 Registry reg = LocateRegistry.getRegistry(selfIP, basePort);
                 cacheIntf = (Cloud.DatabaseOps) reg.lookup("//localhost/no"+(CACHE+basePort));
                 while (true) {
+
+
                     if (localReqQueue.size() > 1) {
                         SL.processRequest(localReqQueue.poll(), cacheIntf);
                         if (interval < 600) {
-                            Cloud.FrontEndOps.Request r = localReqQueue.poll();
-                            SL.drop(r);
+                            // todo:watch this!!
+//                            Cloud.FrontEndOps.Request r = localReqQueue.poll();
+//                            SL.drop(r);
+
+                            // pilot drop in app
+                            while (interval <= 160 && localReqQueue.size() > 1) {
+                                System.out.println("localReqQueue.size()" + localReqQueue.size());
+                                Cloud.FrontEndOps.Request r = localReqQueue.poll();
+                                SL.drop(r);
+                            }
                         }
                         if (System.currentTimeMillis() - lastTime > APP_ADD_COOL_DOWN_INTERVAL) {
                             lastTime = System.currentTimeMillis();
