@@ -28,7 +28,7 @@ public class Server extends UnicastRemoteObject
 	private static long appLastScaleoutTime;
     private static long forLastScaleoutTime;
     private static long interval = 1000;
-    private static final long APP_ADD_COOL_DOWN_INTERVAL = 8000;
+    private static final long APP_ADD_COOL_DOWN_INTERVAL = 9000;
     private static final long FOR_ADD_COOL_DOWN_INTERVAL = 20000;
     private static final long MAX_FORWARDER_NUM = 1;
     private static final long MAX_APP_NUM = 12;
@@ -186,7 +186,7 @@ public class Server extends UnicastRemoteObject
                     if (vmId == MASTER) {
                         // 3 is the number pass ckp2
 //                        while (SL.getQueueLength() > 5) {
-                        while (SL.getQueueLength() > 4) {
+                        while (SL.getQueueLength() > appServerList.size()) {
                             SL.dropHead();
                             dropBCCongestion++;
                             System.out.println("drop b.c. congestion:" + dropBCCongestion);
@@ -205,7 +205,7 @@ public class Server extends UnicastRemoteObject
                     } else {
 //                        while (SL.getQueueLength() > 3) {
                         // 4 will cause c-150 60s to drop too many requests.
-                        while (SL.getQueueLength() > 4) {
+                        while (SL.getQueueLength() > appServerList.size()) {
                             SL.dropHead();
                             dropBCCongestion++;
                             System.out.println("drop b.c. congestion:" + dropBCCongestion);
