@@ -10,7 +10,8 @@ import java.util.concurrent.ConcurrentLinkedDeque;
 public class Server extends UnicastRemoteObject
         implements ServerIntf, Cloud.DatabaseOps  {
 	private static final int MASTER = 1;
-    private static final int CACHE = 2;
+    private static final int CACHE = 100;
+//    private static final int CACHE = 2;
 	private static final Boolean FORWARDER = true;
 	private static final Boolean PROCESSOR = false;
 	private static ConcurrentHashMap<Integer, Boolean> futureAppServerList;
@@ -31,13 +32,11 @@ public class Server extends UnicastRemoteObject
     private static final long APP_ADD_COOL_DOWN_INTERVAL = 9000;
     private static final long FOR_ADD_COOL_DOWN_INTERVAL = 20000;
     private static final long MAX_FORWARDER_NUM = 1;
-    private static final long MAX_APP_NUM = 12;
+    private static final long MAX_APP_NUM = 11;
     private static int startNum = 1;
-    private static final int UPDATE_INTERVAL_HIT = 3;
-//    private static int startForNum = 1;
-    // todo: temporarily do this!!
-    private static int startForNum = 2;
+    private static int startForNum = 0;
     private static int newAppNum = 0;
+    private static final int UPDATE_INTERVAL_HIT = 3;
 
     // especially for cache
     private static LRUCache<String, String> cache;
@@ -75,9 +74,11 @@ public class Server extends UnicastRemoteObject
                 futureAppServerList = new ConcurrentHashMap<>();
                 forServerList = Collections.synchronizedList(new ArrayList<Integer>());
 
-                // this will cause to lose....
+                cache = new LRUCache<String, String>(512);
+                DB = SL.getDB();
+
                 // start cache first
-                SL.startVM();
+//                SL.startVM();
 
                 //launch first vm first.
                 futureAppServerList.put(SL.startVM() + basePort, true);
@@ -231,15 +232,16 @@ public class Server extends UnicastRemoteObject
                 ////////////////////////////////////PROCESS/////////////////////////////////
                 ///////////////////////////////////////////////////////////////////////////
                 //look up cache.
-                if (vmId == 3){
+//                if (vmId == 3){
 //                    Thread.sleep(150);
-                    Thread.sleep(100);
+//                    Thread.sleep(100);
 //                     first vm sleeps for a while
-                }
+//                }
                 Cloud.FrontEndOps.Request curReq;
                 long lastTime = System.currentTimeMillis();
-                Registry reg = LocateRegistry.getRegistry(selfIP, basePort);
-                cacheIntf = (Cloud.DatabaseOps) reg.lookup("//localhost/no"+(CACHE+basePort));
+//                Registry reg = LocateRegistry.getRegistry(selfIP, basePort);
+//                cacheIntf = (Cloud.DatabaseOps) reg.lookup("//localhost/no"+(CACHE+basePort));
+                cacheIntf = (Cloud.DatabaseOps) masterIntf;
                 while (true) {
 
 
