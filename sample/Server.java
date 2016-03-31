@@ -28,7 +28,7 @@ public class Server extends UnicastRemoteObject
 	private static long appLastScaleoutTime;
     private static long forLastScaleoutTime;
     private static long interval = 1000;
-    private static final long APP_ADD_COOL_DOWN_INTERVAL = 8000;
+    private static final long APP_ADD_COOL_DOWN_INTERVAL = 5000;
     private static final long FOR_ADD_COOL_DOWN_INTERVAL = 20000;
     private static final long MAX_FORWARDER_NUM = 1;
     private static final long MAX_APP_NUM = 12;
@@ -93,7 +93,7 @@ public class Server extends UnicastRemoteObject
                 interval = time2 - time1;
                 System.out.println("time2-time1:" + interval);
                 if (interval < 130) {
-                    startNum = 8;
+                    startNum = 9;
                     startForNum = 1;
                 } else if (interval < 150) {
                     startNum = 7;
@@ -124,16 +124,21 @@ public class Server extends UnicastRemoteObject
 
                 futureForServerList = new ConcurrentHashMap<>();
 
-                for (int i = 0; i < startNum - 1; ++i) {
+                for (int i = 0; i < 4; ++i) {
                     futureAppServerList.put(SL.startVM() + basePort, true);
                 }
-                appLastScaleoutTime = System.currentTimeMillis();
+//                appLastScaleoutTime = System.currentTimeMillis();
 
                 // launch Forward servers
                 for (int i = 0; i < startForNum; ++i) {
                     futureForServerList.put(SL.startVM() + basePort, true);
                 }
                 forLastScaleoutTime = System.currentTimeMillis();
+
+                for (int i = 4; i < startNum - 1; ++i) {
+                    futureAppServerList.put(SL.startVM() + basePort, true);
+                }
+                appLastScaleoutTime = System.currentTimeMillis();
 
 
             } else { // non-masetr // ask for role.
@@ -148,7 +153,15 @@ public class Server extends UnicastRemoteObject
                         continue;
                     }
                 }
-                Content reply = masterIntf.getRole(selfRPCPort);
+
+                // if cannot reach to master, master died...
+                Content reply = null;
+                try {
+                    reply = masterIntf.getRole(selfRPCPort);
+                } catch (Exception e){
+                    e.printStackTrace();
+                    return;
+                }
                 if ((selfRole = reply.role) == FORWARDER) {
                     System.out.println("==========Forwarder");
                     appServerList = reply.appServerList;
@@ -194,6 +207,8 @@ public class Server extends UnicastRemoteObject
                         // 4 will cause c-150 60s to drop too many requests.
                         while (SL.getQueueLength() > 4) {
                             SL.dropHead();
+                            dropBCCongestion++;
+                            System.out.println("drop b.c. congestion:" + dropBCCongestion);
                         }
                         Cloud.FrontEndOps.Request r = SL.getNextRequest();
                         if (r == null) {
@@ -220,21 +235,25 @@ public class Server extends UnicastRemoteObject
 
                     if (localReqQueue.size() > 1) {
                         SL.processRequest(localReqQueue.poll(), cacheIntf);
-                        if (interval < 600) {
+                        int firstFetchNum = localReqQueue.size();
+                        System.out.println("firstFetchNum" + firstFetchNum);
+
+//                        if (interval < 600) {
                             // todo:watch this!! // next work: 把这个还原看能不能better. 不能: drop过多 //
 //                            Cloud.FrontEndOps.Request r = localReqQueue.poll();
 //                            SL.drop(r);
 
                             // pilot drop in app
-                            while (interval <= 160 && localReqQueue.size() > 1) {
+//                            while (interval <= 160 && localReqQueue.size() > 1) {
+                            while (interval <= 800 && localReqQueue.size() > 1) {
                                 System.out.println("localReqQueue.size()" + localReqQueue.size());
                                 Cloud.FrontEndOps.Request  r = localReqQueue.poll();
                                 SL.drop(r);
                             }
-                        }
+//                        }
                         if (System.currentTimeMillis() - lastTime > APP_ADD_COOL_DOWN_INTERVAL) {
                             lastTime = System.currentTimeMillis();
-                            int scaleUpNum = (int) ((localReqQueue.size()) / 2);
+                            int scaleUpNum = (int) (firstFetchNum / 2);
                             System.out.println("asking for scale up app:" + scaleUpNum);
                             if (scaleUpNum != 0) {
                                 masterIntf.scaleOutApp(scaleUpNum);
@@ -398,38 +417,38 @@ public class Server extends UnicastRemoteObject
 //    }
 
 
-//    public synchronized boolean transaction(String item, float price, int qty) throws RemoteException {
-//        boolean ret = DB.transaction(item, price, qty);
-//        if (ret) {
-//             update: add change to cache
-//            cache.remove(item);
-//        }
-//        System.out.println("purchase: " + item +" qty:" + qty + "ret:" + ret);
-//
-//    }
-
-
     public synchronized boolean transaction(String item, float price, int qty) throws RemoteException {
-        String trimmedItem = item.trim();
-        String value = cache.get(trimmedItem);
-        if(value != null && value.equals("ITEM")) {
-            if(Float.parseFloat(cache.get(trimmedItem + "_price")) != price) {
-                return false;
-            } else {
-                int storedQty = Integer.parseInt((String)this.DB.get(trimmedItem + "_qty"));
-                if(qty >= 1 && storedQty >= qty) {
-                    storedQty -= qty;
-                    cache.put(trimmedItem + "_qty", "" + storedQty);
-                    System.out.println("purchase: " + item +" qty:" + qty);
-                    return true;
-                } else {
-                    return false;
-                }
-            }
-        } else {
-            return false;
+        boolean ret = DB.transaction(item, price, qty);
+        if (ret) {
+//             update: add change to cache
+            cache.remove(item);
         }
+        System.out.println("purchase: " + item +" qty:" + qty + "ret:" + ret);
+        return ret;
     }
+
+//
+//    public synchronized boolean transaction(String item, float price, int qty) throws RemoteException {
+//        String trimmedItem = item.trim();
+//        String value = cache.get(trimmedItem);
+//        if(value != null && value.equals("ITEM")) {
+//            if(Float.parseFloat(cache.get(trimmedItem + "_price")) != price) {
+//                return false;
+//            } else {
+//                int storedQty = Integer.parseInt((String)this.DB.get(trimmedItem + "_qty"));
+//                if(qty >= 1 && storedQty >= qty) {
+//                    storedQty -= qty;
+//                    cache.put(trimmedItem + "_qty", "" + storedQty);
+//                    System.out.println("purchase: " + item +" qty:" + qty);
+//                    return true;
+//                } else {
+//                    return false;
+//                }
+//            }
+//        } else {
+//            return false;
+//        }
+//    }
 
 
     public synchronized void shutDown() throws RemoteException {
