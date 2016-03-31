@@ -33,9 +33,11 @@ public class Server extends UnicastRemoteObject
     private static final long MAX_FORWARDER_NUM = 1;
     private static final long MAX_APP_NUM = 12;
     private static int startNum = 1;
+    private static final int UPDATE_INTERVAL_HIT = 3;
 //    private static int startForNum = 1;
     // todo: temporarily do this!!
     private static int startForNum = 2;
+    private static int newAppNum = 0;
 
     // especially for cache
     private static LRUCache<String, String> cache;
@@ -184,9 +186,16 @@ public class Server extends UnicastRemoteObject
                 int dropBCCongestion  = 0;
                 while (true) {
                     if (vmId == MASTER) {
+                        if (newAppNum >= UPDATE_INTERVAL_HIT){
+                            if (interval > 200){
+                                broadcastInterval(200);
+                            }
+                            newAppNum = 0;
+                        }
+
                         // 3 is the number pass ckp2
 //                        while (SL.getQueueLength() > 5) {
-                        while (SL.getQueueLength() > appServerList.size()) {
+                        while (SL.getQueueLength() > 4) {
                             SL.dropHead();
                             dropBCCongestion++;
                             System.out.println("drop b.c. congestion:" + dropBCCongestion);
@@ -205,7 +214,7 @@ public class Server extends UnicastRemoteObject
                     } else {
 //                        while (SL.getQueueLength() > 3) {
                         // 4 will cause c-150 60s to drop too many requests.
-                        while (SL.getQueueLength() > appServerList.size()) {
+                        while (SL.getQueueLength() > 4 ) {
                             SL.dropHead();
                             dropBCCongestion++;
                             System.out.println("drop b.c. congestion:" + dropBCCongestion);
@@ -220,10 +229,11 @@ public class Server extends UnicastRemoteObject
             } else { // processor
                 ////////////////////////////////////////////////////////////////////////////
                 ////////////////////////////////////PROCESS/////////////////////////////////
-                ////////////////////////////////////////////////////////////////////////////
+                ///////////////////////////////////////////////////////////////////////////
                 //look up cache.
                 if (vmId == 3){
-                    Thread.sleep(150);
+//                    Thread.sleep(150);
+                    Thread.sleep(100);
 //                     first vm sleeps for a while
                 }
                 Cloud.FrontEndOps.Request curReq;
@@ -243,9 +253,14 @@ public class Server extends UnicastRemoteObject
 //                            Cloud.FrontEndOps.Request r = localReqQueue.poll();
 //                            SL.drop(r);
 
-                            // pilot drop in app
+                            while (interval <= 800 && localReqQueue.size() > 2) {
+                                System.out.println("localReqQueue.size()" + localReqQueue.size());
+                                Cloud.FrontEndOps.Request  r = localReqQueue.poll();
+                                SL.drop(r);
+                            }
+
 //                            while (interval <= 160 && localReqQueue.size() > 1) {
-                            while (interval <= 800 && localReqQueue.size() > 1) {
+                            while (interval <= 400 && localReqQueue.size() > 1) {
                                 System.out.println("localReqQueue.size()" + localReqQueue.size());
                                 Cloud.FrontEndOps.Request  r = localReqQueue.poll();
                                 SL.drop(r);
@@ -279,6 +294,7 @@ public class Server extends UnicastRemoteObject
             for (int i = 0; i < num && (curNum + i < MAX_APP_NUM); ++i) {
                 System.out.println("Scale out App");
                 futureAppServerList.put(SL.startVM() + basePort, true);
+                newAppNum++;
             }
         }else {
             System.out.println("scaleout refused. : interval:" + (System.currentTimeMillis() - appLastScaleoutTime));
@@ -303,6 +319,11 @@ public class Server extends UnicastRemoteObject
 
     public void welcomeNewApp(int rpcPort) throws RemoteException{
         appServerList.add(rpcPort);
+    }
+
+    public void updateInterval (long newInterval) throws RemoteException{
+        this.interval =  newInterval;
+        System.out.println("update interval to " + newInterval);
     }
 
 
@@ -352,12 +373,21 @@ public class Server extends UnicastRemoteObject
             }
         }
         // forwarder
+
         System.out.println("RPCport:" + newRPCport + " is ford");
         futureForServerList.remove(newRPCport);
         forServerList.add(newRPCport);
-		return new Content(FORWARDER, appServerList);
-	}
+        return new Content(FORWARDER, appServerList);
+    }
 
+    public static void broadcastInterval(long newInterval) throws Exception {
+        for (int i = 0; i < appServerList.size(); ++i){
+            int rpcPort = appServerList.get(i);
+            Registry reg = LocateRegistry.getRegistry(selfIP, basePort);
+            ServerIntf curForIntf = (ServerIntf) reg.lookup("//localhost/no"+rpcPort);
+            curForIntf.updateInterval(newInterval);
+        }
+    }
 
 
 
@@ -369,7 +399,7 @@ public class Server extends UnicastRemoteObject
         String trimmedKey = key.trim();
         if (cache.containsKey(trimmedKey)){
             String value = cache.get(trimmedKey);
-            System.out.println("hit:" + trimmedKey + " value:" + value);
+//            System.out.println("hit:" + trimmedKey + " value:" + value);
             return value;
         } else{
             String value = DB.get(trimmedKey);
@@ -384,7 +414,7 @@ public class Server extends UnicastRemoteObject
 //                System.out.println("prefetch:" + trimmedKey + " price:" + price + " qty:" + qty);
 //            }
 
-            System.out.println("miss:" + trimmedKey + " value:" + value);
+//            System.out.println("miss:" + trimmedKey + " value:" + value);
             return value;
         }
 
@@ -421,9 +451,12 @@ public class Server extends UnicastRemoteObject
         boolean ret = DB.transaction(item, price, qty);
         if (ret) {
 //             update: add change to cache
-            cache.remove(item);
+//            cache.remove(item);
+            String trimmedItem = item.trim();
+            String qtyStr = trimmedItem + "_qty";
+            cache.put(qtyStr, String.valueOf(Integer.parseInt(cache.get(qtyStr))-qty));
         }
-        System.out.println("purchase: " + item +" qty:" + qty + "ret:" + ret);
+//        System.out.println("purchase: " + item +" qty:" + qty + "ret:" + ret);
         return ret;
     }
 
