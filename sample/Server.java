@@ -29,7 +29,7 @@ public class Server extends UnicastRemoteObject
     private static long forLastScaleoutTime;
     private static long interval = 1000;
     private static final long APP_ADD_COOL_DOWN_INTERVAL = 8000;
-    private static final long FOR_ADD_COOL_DOWN_INTERVAL = 1000;
+    private static final long FOR_ADD_COOL_DOWN_INTERVAL = 20000;
     private static final long MAX_FORWARDER_NUM = 1;
     private static final long MAX_APP_NUM = 12;
     private static int startNum = 1;
@@ -372,30 +372,64 @@ public class Server extends UnicastRemoteObject
 
     }
 
+//    public synchronized boolean set(String key, String value, String password) throws RemoteException {
+//        return DB.set(key, value, password);
+//
+//         write through
+//        boolean ret = DB.set(key, value, password);
+        // if success, insert in cache
+//        if (ret){
+//            cache.put(key, value);
+//            return true;
+//        }
+//        return false;
+//    }
+
+
     public synchronized boolean set(String key, String value, String password) throws RemoteException {
 //        return DB.set(key, value, password);
 
-        // write through
-        boolean ret = DB.set(key, value, password);
-        // if success, insert in cache
-        if (ret){
+        if(!password.equals("sqwe")){
+            return false;
+        } else {
             cache.put(key, value);
             return true;
         }
-        return false;
     }
+
+
+//    public synchronized boolean transaction(String item, float price, int qty) throws RemoteException {
+//        boolean ret = DB.transaction(item, price, qty);
+//        if (ret) {
+//             update: add change to cache
+//            cache.remove(item);
+//        }
+//        System.out.println("purchase: " + item +" qty:" + qty + "ret:" + ret);
+//
+//    }
+
 
     public synchronized boolean transaction(String item, float price, int qty) throws RemoteException {
-        boolean ret = DB.transaction(item, price, qty);
-        if (ret) {
-            // update: add change to cache
-            cache.remove(item);
+        String trimmedItem = item.trim();
+        String value = cache.get(trimmedItem);
+        if(value != null && value.equals("ITEM")) {
+            if(Float.parseFloat(cache.get(trimmedItem + "_price")) != price) {
+                return false;
+            } else {
+                int storedQty = Integer.parseInt((String)this.DB.get(trimmedItem + "_qty"));
+                if(qty >= 1 && storedQty >= qty) {
+                    storedQty -= qty;
+                    cache.put(trimmedItem + "_qty", "" + storedQty);
+                    System.out.println("purchase: " + item +" qty:" + qty);
+                    return true;
+                } else {
+                    return false;
+                }
+            }
+        } else {
+            return false;
         }
-        System.out.println("purchase: " + item +" qty:" + qty + "ret:" + ret);
-
-        return ret;
     }
-
 
 
     public synchronized void shutDown() throws RemoteException {
