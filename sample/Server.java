@@ -28,7 +28,7 @@ public class Server extends UnicastRemoteObject
 	private static long appLastScaleoutTime;
     private static long forLastScaleoutTime;
     private static long interval = 1000;
-    private static final long APP_ADD_COOL_DOWN_INTERVAL = 5000;
+    private static final long APP_ADD_COOL_DOWN_INTERVAL = 8000;
     private static final long FOR_ADD_COOL_DOWN_INTERVAL = 20000;
     private static final long MAX_FORWARDER_NUM = 1;
     private static final long MAX_APP_NUM = 12;
@@ -253,7 +253,7 @@ public class Server extends UnicastRemoteObject
 //                        }
                         if (System.currentTimeMillis() - lastTime > APP_ADD_COOL_DOWN_INTERVAL) {
                             lastTime = System.currentTimeMillis();
-                            int scaleUpNum = (int) (firstFetchNum / 2);
+                            int scaleUpNum = (int) (((double)(firstFetchNum)) / 1.5);
                             System.out.println("asking for scale up app:" + scaleUpNum);
                             if (scaleUpNum != 0) {
                                 masterIntf.scaleOutApp(scaleUpNum);
