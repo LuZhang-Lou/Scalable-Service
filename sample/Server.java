@@ -221,15 +221,14 @@ public class Server extends UnicastRemoteObject
                     if (localReqQueue.size() > 1) {
                         SL.processRequest(localReqQueue.poll(), cacheIntf);
                         if (interval < 600) {
-                            // todo:watch this!!
-                            // todo : next work: 把这个还原看能不能better
+                            // todo:watch this!! // next work: 把这个还原看能不能better. 不能: drop过多 //
 //                            Cloud.FrontEndOps.Request r = localReqQueue.poll();
 //                            SL.drop(r);
 
                             // pilot drop in app
                             while (interval <= 160 && localReqQueue.size() > 1) {
                                 System.out.println("localReqQueue.size()" + localReqQueue.size());
-                                Cloud.FrontEndOps.Request r = localReqQueue.poll();
+                                Cloud.FrontEndOps.Request  r = localReqQueue.poll();
                                 SL.drop(r);
                             }
                         }
@@ -372,30 +371,31 @@ public class Server extends UnicastRemoteObject
 
     }
 
-//    public synchronized boolean set(String key, String value, String password) throws RemoteException {
-//        return DB.set(key, value, password);
-//
-//         write through
-//        boolean ret = DB.set(key, value, password);
-        // if success, insert in cache
-//        if (ret){
-//            cache.put(key, value);
-//            return true;
-//        }
-//        return false;
-//    }
-
-
     public synchronized boolean set(String key, String value, String password) throws RemoteException {
 //        return DB.set(key, value, password);
 
-        if(!password.equals("sqwe")){
-            return false;
-        } else {
+//         write through
+        System.out.println("CallSet:" + password);
+        boolean ret = DB.set(key, value, password);
+//         if success, insert in cache
+        if (ret){
             cache.put(key, value);
             return true;
         }
+        return false;
     }
+
+
+//    public synchronized boolean set(String key, String value, String password) throws RemoteException {
+//        return DB.set(key, value, password);
+
+//        if(!password.equals("sqwe")){
+//            return false;
+//        } else {
+//            cache.put(key, value);
+//            return true;
+//        }
+//    }
 
 
 //    public synchronized boolean transaction(String item, float price, int qty) throws RemoteException {
