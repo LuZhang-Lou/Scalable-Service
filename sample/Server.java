@@ -276,7 +276,7 @@ public class Server extends UnicastRemoteObject
         //
         if (forServerList.size() + futureForServerList.size() < MAX_FORWARDER_NUM &&
                 System.currentTimeMillis() - forLastScaleoutTime > FOR_ADD_COOL_DOWN_INTERVAL) {
-            System.out.println("Scalue out Forwarder");
+            System.out.println("Scale out Forwarder");
             futureForServerList.put(SL.startVM() + basePort, true);
             forLastScaleoutTime = System.currentTimeMillis();
         }
