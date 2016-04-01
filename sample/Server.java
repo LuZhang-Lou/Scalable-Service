@@ -290,7 +290,7 @@ public class Server extends UnicastRemoteObject
 
     public WrapperReq getFromCentralizedQueue() throws RemoteException{
         WrapperReq r = null;
-        while (centralizedQueue.size() > appServerList.size()*2){
+        while (centralizedQueue.size() > appServerList.size()*1.7){
             r = centralizedQueue.poll();
             if (r!=null || r.isTimeout()){
 //            if (r.isTimeout()){
