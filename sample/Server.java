@@ -93,7 +93,7 @@ public class Server extends UnicastRemoteObject
                 interval = time2 - time1;
                 System.out.println("time2-time1:" + interval);
                 if (interval < 130) {
-                    startNum = 8;
+                    startNum = 10;
                     startForNum = 1;
                 } else if (interval < 150) {
                     startNum = 7;
@@ -182,11 +182,11 @@ public class Server extends UnicastRemoteObject
                             newAppNum = 0;
                         }
 
-//                        while (SL.getQueueLength() > 3) {
-//                            SL.dropHead();
-//                            dropBCCongestion++;
-//                            System.out.println("drop b.c. congestion:" + dropBCCongestion);
-//                        }
+                        while (SL.getQueueLength() > 4) {
+                            SL.dropHead();
+                            dropBCCongestion++;
+                            System.out.println("drop b.c. congestion:" + dropBCCongestion);
+                        }
                         Cloud.FrontEndOps.Request r = SL.getNextRequest();
                         long ts = System.currentTimeMillis();
                         if (r == null) {
@@ -194,14 +194,14 @@ public class Server extends UnicastRemoteObject
                         }
                         centralizedQueue.add(new WrapperReq(r, ts));
 
-//                        while (centralizedQueue.size() >= appServerList.size()*0.8){
-//                            r = centralizedQueue.poll();
-//                            if (r != null) {
-//                                SL.drop(r);
-//                                dropBCCongestion++;
-//                                System.out.println("drop b.c. masterCongestion:" + dropBCCongestion);
-//                            }
-//                        }
+                        while (centralizedQueue.size() >= appServerList.size()*2){
+                            WrapperReq cur = centralizedQueue.poll();
+                            if (cur != null || cur.isTimeout()) {
+                                SL.drop(cur.request);
+                                dropBCCongestion++;
+                                System.out.println("drop b.c. mastercongestion:" + dropBCCongestion);
+                            }
+                        }
 
 //                        int queueLen = SL.getQueueLength();
 //                        if (queueLen > appServerList.size() * 1) {
@@ -209,11 +209,11 @@ public class Server extends UnicastRemoteObject
 //                            scaleOutApp(1);
 //                        }
                     } else { // normal forwarder
-//                        while (SL.getQueueLength() > 3 ) {
-//                            SL.dropHead();
-//                            dropBCCongestion++;
-//                            System.out.println("drop b.c. congestion:" + dropBCCongestion);
-//                        }
+                        while (SL.getQueueLength() > 3 ) {
+                            SL.dropHead();
+                            dropBCCongestion++;
+                            System.out.println("drop b.c. congestion:" + dropBCCongestion);
+                        }
                         Cloud.FrontEndOps.Request r = SL.getNextRequest();
                         long ts = System.currentTimeMillis();
                         if (r == null) {
@@ -240,11 +240,11 @@ public class Server extends UnicastRemoteObject
                     }
                     if (r.isTimeout()){
                         SL.drop(r.request);
-                        System.out.println("dropafterget");
+                        System.out.println("ClientDrop3");
                     }
                     else {
                         SL.processRequest(r.request, cacheIntf);
-                        System.out.println("process");
+//                        System.out.println("process");
                     }
 
                     /*
@@ -290,10 +290,10 @@ public class Server extends UnicastRemoteObject
 
     public WrapperReq getFromCentralizedQueue() throws RemoteException{
         WrapperReq r = null;
-        while (centralizedQueue.size() > appServerList.size()*1.2){
+        while (centralizedQueue.size() > appServerList.size()*2){
             r = centralizedQueue.poll();
-//            if (r!=null || r.isTimeout()){
-            if (r.isTimeout()){
+            if (r!=null || r.isTimeout()){
+//            if (r.isTimeout()){
                 SL.drop(r.request);
                 System.out.println("ClientDrop1");
             } else {
