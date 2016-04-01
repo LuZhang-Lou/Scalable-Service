@@ -29,10 +29,10 @@ public class Server extends UnicastRemoteObject
 	private static long appLastScaleoutTime;
     private static long forLastScaleoutTime;
     private static long interval = 1000;
-    private static final long APP_ADD_COOL_DOWN_INTERVAL = 9000;
+    private static final long APP_ADD_COOL_DOWN_INTERVAL = 60000;
     private static final long FOR_ADD_COOL_DOWN_INTERVAL = 20000;
     private static final long MAX_FORWARDER_NUM = 1;
-    private static final long MAX_APP_NUM = 11;
+    private static final long MAX_APP_NUM = 10;
     private static int startNum = 1;
     private static int startForNum = 0;
     private static int newAppNum = 0;
@@ -96,7 +96,7 @@ public class Server extends UnicastRemoteObject
                 interval = time2 - time1;
                 System.out.println("time2-time1:" + interval);
                 if (interval < 130) {
-                    startNum = 9;
+                    startNum = 10;
                     startForNum = 1;
                 } else if (interval < 150) {
                     startNum = 7;
@@ -106,9 +106,6 @@ public class Server extends UnicastRemoteObject
                     startForNum = 0;
                 } else if (interval < 650) {
                     startNum = 4;
-                    startForNum = 0;
-                } else if (interval < 2000) {
-                    startNum = 2;
                     startForNum = 0;
                 } else {
                     startNum = 1;
@@ -127,7 +124,7 @@ public class Server extends UnicastRemoteObject
 
                 futureForServerList = new ConcurrentHashMap<>();
 
-                for (int i = 0; i < 4; ++i) {
+                for (int i = 0; i < Math.min(4, startNum) ; ++i) {
                     futureAppServerList.put(SL.startVM() + basePort, true);
                 }
 //                appLastScaleoutTime = System.currentTimeMillis();
@@ -141,7 +138,8 @@ public class Server extends UnicastRemoteObject
                 for (int i = 4; i < startNum - 1; ++i) {
                     futureAppServerList.put(SL.startVM() + basePort, true);
                 }
-                appLastScaleoutTime = System.currentTimeMillis();
+//                appLastScaleoutTime = System.currentTimeMillis();
+                appLastScaleoutTime = 0;
 
 
             } else { // non-masetr // ask for role.
@@ -178,7 +176,7 @@ public class Server extends UnicastRemoteObject
                 if (vmId != MASTER) {
                     SL.register_frontend();
                 }
-                while (vmId == MASTER && SL.getStatusVM(2) == Cloud.CloudOps.VMStatus.Booting && appServerList.size() == 0) {
+                while (vmId == MASTER && appServerList.size() == 0) {
                     SL.dropHead();
                     // This is used to "try" to decrease the drops
                     // Seems useles??
@@ -194,7 +192,6 @@ public class Server extends UnicastRemoteObject
                             newAppNum = 0;
                         }
 
-                        // 3 is the number pass ckp2
 //                        while (SL.getQueueLength() > 5) {
                         while (SL.getQueueLength() > 4) {
                             SL.dropHead();
@@ -214,7 +211,6 @@ public class Server extends UnicastRemoteObject
 
                     } else {
 //                        while (SL.getQueueLength() > 3) {
-                        // 4 will cause c-150 60s to drop too many requests.
                         while (SL.getQueueLength() > 4 ) {
                             SL.dropHead();
                             dropBCCongestion++;
@@ -238,9 +234,8 @@ public class Server extends UnicastRemoteObject
 //                     first vm sleeps for a while
 //                }
                 Cloud.FrontEndOps.Request curReq;
-                long lastTime = System.currentTimeMillis();
-//                Registry reg = LocateRegistry.getRegistry(selfIP, basePort);
-//                cacheIntf = (Cloud.DatabaseOps) reg.lookup("//localhost/no"+(CACHE+basePort));
+//                long lastTime = System.currentTimeMillis();
+                long lastTime = 0;
                 cacheIntf = (Cloud.DatabaseOps) masterIntf;
                 while (true) {
 
@@ -250,27 +245,22 @@ public class Server extends UnicastRemoteObject
                         int firstFetchNum = localReqQueue.size();
                         System.out.println("firstFetchNum" + firstFetchNum);
 
-//                        if (interval < 600) {
-                            // todo:watch this!! // next work: 把这个还原看能不能better. 不能: drop过多 //
-//                            Cloud.FrontEndOps.Request r = localReqQueue.poll();
-//                            SL.drop(r);
-
-                            while (interval <= 800 && localReqQueue.size() > 2) {
-                                System.out.println("localReqQueue.size()" + localReqQueue.size());
-                                Cloud.FrontEndOps.Request  r = localReqQueue.poll();
-                                SL.drop(r);
-                            }
+                        while (interval <= 800 && localReqQueue.size() > 3) {
+                            System.out.println("localReqQueue.size()" + localReqQueue.size());
+                            Cloud.FrontEndOps.Request  r = localReqQueue.poll();
+                            SL.drop(r);
+                        }
 
 //                            while (interval <= 160 && localReqQueue.size() > 1) {
-                            while (interval <= 400 && localReqQueue.size() > 1) {
-                                System.out.println("localReqQueue.size()" + localReqQueue.size());
-                                Cloud.FrontEndOps.Request  r = localReqQueue.poll();
-                                SL.drop(r);
-                            }
-//                        }
-                        if (System.currentTimeMillis() - lastTime > APP_ADD_COOL_DOWN_INTERVAL) {
+                        while (interval <= 400 && localReqQueue.size() > 1) {
+                            System.out.println("localReqQueue.size()" + localReqQueue.size());
+                            Cloud.FrontEndOps.Request  r = localReqQueue.poll();
+                            SL.drop(r);
+                        }
+
+                        if (firstFetchNum > 1 && System.currentTimeMillis() - lastTime > APP_ADD_COOL_DOWN_INTERVAL) {
                             lastTime = System.currentTimeMillis();
-                            int scaleUpNum = (int) (((double)(firstFetchNum)) / 1.5);
+                            int scaleUpNum = (int) (((double)(firstFetchNum) * 2) );
                             System.out.println("asking for scale up app:" + scaleUpNum);
                             if (scaleUpNum != 0) {
                                 masterIntf.scaleOutApp(scaleUpNum);
@@ -290,6 +280,7 @@ public class Server extends UnicastRemoteObject
 	public void scaleOutApp(int num) throws Exception{
         System.out.println("Receiving scale out app request:" + num);
         int curNum = appServerList.size() + futureAppServerList.size();
+        num = Math.min(num, 4);
         if (curNum <= MAX_APP_NUM &&
                 System.currentTimeMillis() - appLastScaleoutTime > APP_ADD_COOL_DOWN_INTERVAL) {
             appLastScaleoutTime = System.currentTimeMillis();
@@ -449,41 +440,41 @@ public class Server extends UnicastRemoteObject
 //    }
 
 
-    public synchronized boolean transaction(String item, float price, int qty) throws RemoteException {
-        boolean ret = DB.transaction(item, price, qty);
-        if (ret) {
+//    public synchronized boolean transaction(String item, float price, int qty) throws RemoteException {
+//        boolean ret = DB.transaction(item, price, qty);
+//        if (ret) {
 //             update: add change to cache
 //            cache.remove(item);
-            String trimmedItem = item.trim();
-            String qtyStr = trimmedItem + "_qty";
-            cache.put(qtyStr, String.valueOf(Integer.parseInt(cache.get(qtyStr))-qty));
-        }
-//        System.out.println("purchase: " + item +" qty:" + qty + "ret:" + ret);
-        return ret;
-    }
-
-//
-//    public synchronized boolean transaction(String item, float price, int qty) throws RemoteException {
-//        String trimmedItem = item.trim();
-//        String value = cache.get(trimmedItem);
-//        if(value != null && value.equals("ITEM")) {
-//            if(Float.parseFloat(cache.get(trimmedItem + "_price")) != price) {
-//                return false;
-//            } else {
-//                int storedQty = Integer.parseInt((String)this.DB.get(trimmedItem + "_qty"));
-//                if(qty >= 1 && storedQty >= qty) {
-//                    storedQty -= qty;
-//                    cache.put(trimmedItem + "_qty", "" + storedQty);
-//                    System.out.println("purchase: " + item +" qty:" + qty);
-//                    return true;
-//                } else {
-//                    return false;
-//                }
-//            }
-//        } else {
-//            return false;
+//            String trimmedItem = item.trim();
+//            String qtyStr = trimmedItem + "_qty";
+//            cache.put(qtyStr, String.valueOf(Integer.parseInt(cache.get(qtyStr))-qty));
 //        }
+//        System.out.println("purchase: " + item +" qty:" + qty + "ret:" + ret);
+//        return ret;
 //    }
+
+
+    public synchronized boolean transaction(String item, float price, int qty) throws RemoteException {
+        String trimmedItem = item.trim();
+        String value = cache.get(trimmedItem);
+        if(value != null && value.equals("ITEM")) {
+            if(Float.parseFloat(cache.get(trimmedItem + "_price")) != price) {
+                return false;
+            } else {
+                int storedQty = Integer.parseInt((String)this.DB.get(trimmedItem + "_qty"));
+                if(qty >= 1 && storedQty >= qty) {
+                    storedQty -= qty;
+                    cache.put(trimmedItem + "_qty", "" + storedQty);
+                    System.out.println("purchase: " + item +" qty:" + qty);
+                    return true;
+                } else {
+                    return false;
+                }
+            }
+        } else {
+            return false;
+        }
+    }
 
 
     public synchronized void shutDown() throws RemoteException {
