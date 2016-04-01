@@ -58,11 +58,9 @@ public class Server extends UnicastRemoteObject
 		System.out.println("selfPRPCPort:" + selfRPCPort);
 		System.out.println("---vmID----" + vmId);
 
-
         Registry registry = LocateRegistry.getRegistry(selfIP, basePort);
         registry.bind("//localhost/no"+selfRPCPort, new Server());
         SL = new ServerLib(args[0], basePort);
-
 
         if (vmId == CACHE){
             cache = new LRUCache<String, String>(512);
@@ -77,13 +75,9 @@ public class Server extends UnicastRemoteObject
                 cache = new LRUCache<String, String>(512);
                 DB = SL.getDB();
 
-                // start cache first
-//                SL.startVM();
-
                 //launch first vm first.
                 futureAppServerList.put(SL.startVM() + basePort, true);
                 SL.register_frontend();
-
 
                 // get # of start vm
                 while (SL.getQueueLength() == 0) ;
@@ -120,14 +114,11 @@ public class Server extends UnicastRemoteObject
             // launch other start vms.
             if (vmId == MASTER) {
                 selfRole = FORWARDER;
-//            forServerList = Collections.synchronizedList(new ArrayList<Integer>());
-
                 futureForServerList = new ConcurrentHashMap<>();
 
                 for (int i = 0; i < Math.min(4, startNum) ; ++i) {
                     futureAppServerList.put(SL.startVM() + basePort, true);
                 }
-//                appLastScaleoutTime = System.currentTimeMillis();
 
                 // launch Forward servers
                 for (int i = 0; i < startForNum; ++i) {
@@ -138,7 +129,6 @@ public class Server extends UnicastRemoteObject
                 for (int i = 4; i < startNum - 1; ++i) {
                     futureAppServerList.put(SL.startVM() + basePort, true);
                 }
-//                appLastScaleoutTime = System.currentTimeMillis();
                 appLastScaleoutTime = 0;
 
 
@@ -178,8 +168,6 @@ public class Server extends UnicastRemoteObject
                 }
                 while (vmId == MASTER && appServerList.size() == 0) {
                     SL.dropHead();
-                    // This is used to "try" to decrease the drops
-                    // Seems useles??
                     Thread.sleep(50);
                 }
                 int dropBCCongestion  = 0;
@@ -192,7 +180,6 @@ public class Server extends UnicastRemoteObject
                             newAppNum = 0;
                         }
 
-//                        while (SL.getQueueLength() > 5) {
                         while (SL.getQueueLength() > 4) {
                             SL.dropHead();
                             dropBCCongestion++;
@@ -210,7 +197,6 @@ public class Server extends UnicastRemoteObject
                         }
 
                     } else {
-//                        while (SL.getQueueLength() > 3) {
                         while (SL.getQueueLength() > 4 ) {
                             SL.dropHead();
                             dropBCCongestion++;
@@ -227,18 +213,12 @@ public class Server extends UnicastRemoteObject
                 ////////////////////////////////////////////////////////////////////////////
                 ////////////////////////////////////PROCESS/////////////////////////////////
                 ///////////////////////////////////////////////////////////////////////////
-                //look up cache.
-//                if (vmId == 3){
-//                    Thread.sleep(150);
-//                    Thread.sleep(100);
-//                     first vm sleeps for a while
-//                }
+
                 Cloud.FrontEndOps.Request curReq;
-//                long lastTime = System.currentTimeMillis();
                 long lastTime = 0;
                 cacheIntf = (Cloud.DatabaseOps) masterIntf;
+                long lastScaleInTime = 0;
                 while (true) {
-
 
                     if (localReqQueue.size() > 1) {
                         SL.processRequest(localReqQueue.poll(), cacheIntf);
@@ -251,7 +231,6 @@ public class Server extends UnicastRemoteObject
                             SL.drop(r);
                         }
 
-//                            while (interval <= 160 && localReqQueue.size() > 1) {
                         while (interval <= 400 && localReqQueue.size() > 1) {
                             System.out.println("localReqQueue.size()" + localReqQueue.size());
                             Cloud.FrontEndOps.Request  r = localReqQueue.poll();
@@ -297,11 +276,9 @@ public class Server extends UnicastRemoteObject
     public static void scaleOutFor(int num) {
         System.out.println("Check whetther to scaleup forwarder");
 
-        //
         int sum = forServerList.size() + futureForServerList.size();
         System.out.println("forwardersize" + sum);
 
-        //
         if (forServerList.size() + futureForServerList.size() < MAX_FORWARDER_NUM &&
                 System.currentTimeMillis() - forLastScaleoutTime > FOR_ADD_COOL_DOWN_INTERVAL) {
             System.out.println("Scale out Forwarder");
@@ -383,16 +360,12 @@ public class Server extends UnicastRemoteObject
     }
 
 
-
     public synchronized String get(String key) throws RemoteException {
-
-//        return DB.get(var1);
 
         // if in cache. get, or fetch.
         String trimmedKey = key.trim();
         if (cache.containsKey(trimmedKey)){
             String value = cache.get(trimmedKey);
-//            System.out.println("hit:" + trimmedKey + " value:" + value);
             return value;
         } else{
             String value = DB.get(trimmedKey);
@@ -407,7 +380,6 @@ public class Server extends UnicastRemoteObject
 //                System.out.println("prefetch:" + trimmedKey + " price:" + price + " qty:" + qty);
 //            }
 
-//            System.out.println("miss:" + trimmedKey + " value:" + value);
             return value;
         }
 
