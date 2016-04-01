@@ -12,8 +12,10 @@ public interface ServerIntf extends Remote {
 //    public ArrayList<Integer> getAppServerList() throws RemoteException;
     public void welcomeNewApp(int RPCPort) throws RemoteException;
     public void updateInterval(long RPCPort) throws RemoteException;
-    public void addToLocalQue(Cloud.FrontEndOps.Request r) throws Exception;
-    public void scaleOutApp(int num) throws Exception;
+//    public void addToLocalQue(Cloud.FrontEndOps.Request r) throws Exception;
+//    public void scaleOutApp(int num) throws Exception;
+    public void addToCentralizedQueue (WrapperReq r) throws RemoteException;
+    public WrapperReq getFromCentralizedQueue() throws RemoteException;
 }
 
 
