@@ -27,16 +27,20 @@ public class Server extends UnicastRemoteObject
 	private static ServerLib SL;
 	private static int curRound = 0;
 	private static long appLastScaleoutTime;
+    private static long appLastScaleinTime;
     private static long forLastScaleoutTime;
     private static long interval = 1000;
-    private static final long APP_ADD_COOL_DOWN_INTERVAL = 60000;
+    private static final long APP_ADD_COOL_DOWN_INTERVAL = 30000;
+    private static final long APP_REMOVE_COOL_DOWN_INTERVAL = 20000;
     private static final long FOR_ADD_COOL_DOWN_INTERVAL = 20000;
     private static final long MAX_FORWARDER_NUM = 1;
     private static final long MAX_APP_NUM = 10;
     private static int startNum = 1;
     private static int startForNum = 0;
     private static int newAppNum = 0;
-    private static final int UPDATE_INTERVAL_HIT = 3;
+    private static int goneAppNum = 0;
+    private static final int REDUCE_INTERVAL_HIT = 3;
+    private static final int ADD_INTERVAL_HIT = 2;
 
     // especially for cache
     private static LRUCache<String, String> cache;
@@ -92,7 +96,7 @@ public class Server extends UnicastRemoteObject
                 if (interval < 130) {
                     startNum = 10;
                     startForNum = 1;
-                } else if (interval < 150) {
+                } else if (interval < 200) {
                     startNum = 7;
                     startForNum = 1;
                 } else if (interval < 300) {
@@ -116,7 +120,7 @@ public class Server extends UnicastRemoteObject
                 selfRole = FORWARDER;
                 futureForServerList = new ConcurrentHashMap<>();
 
-                for (int i = 0; i < Math.min(4, startNum) ; ++i) {
+                for (int i = 0; i < Math.min(3, startNum) ; ++i) {
                     futureAppServerList.put(SL.startVM() + basePort, true);
                 }
 
@@ -126,10 +130,13 @@ public class Server extends UnicastRemoteObject
                 }
                 forLastScaleoutTime = System.currentTimeMillis();
 
-                for (int i = 4; i < startNum - 1; ++i) {
+                for (int i = 3; i < startNum - 1; ++i) {
                     futureAppServerList.put(SL.startVM() + basePort, true);
                 }
+
+//                appLastScaleoutTime = System.currentTimeMillis();
                 appLastScaleoutTime = 0;
+                appLastScaleinTime = System.currentTimeMillis();
 
 
             } else { // non-masetr // ask for role.
@@ -173,14 +180,19 @@ public class Server extends UnicastRemoteObject
                 int dropBCCongestion  = 0;
                 while (true) {
                     if (vmId == MASTER) {
-                        if (newAppNum >= UPDATE_INTERVAL_HIT){
+                        if (newAppNum >= REDUCE_INTERVAL_HIT){
                             if (interval > 200){
                                 broadcastInterval(200);
                             }
                             newAppNum = 0;
+                            goneAppNum = 0;
+                        } else if (goneAppNum >= ADD_INTERVAL_HIT){
+                            broadcastInterval(1000);
+                            newAppNum = 0;
+                            goneAppNum = 0;
                         }
 
-                        while (SL.getQueueLength() > 4) {
+                        while (SL.getQueueLength() > 5) {
                             SL.dropHead();
                             dropBCCongestion++;
                             System.out.println("drop b.c. congestion:" + dropBCCongestion);
@@ -197,7 +209,7 @@ public class Server extends UnicastRemoteObject
                         }
 
                     } else {
-                        while (SL.getQueueLength() > 4 ) {
+                        while (SL.getQueueLength() > 5 ) {
                             SL.dropHead();
                             dropBCCongestion++;
                             System.out.println("drop b.c. congestion:" + dropBCCongestion);
@@ -217,10 +229,14 @@ public class Server extends UnicastRemoteObject
                 Cloud.FrontEndOps.Request curReq;
                 long lastTime = 0;
                 cacheIntf = (Cloud.DatabaseOps) masterIntf;
-                long lastScaleInTime = 0;
+                long idleBeginTime = 0;
+                appLastScaleinTime = System.currentTimeMillis();
                 while (true) {
-
+                    if (idleBeginTime == Long.MAX_VALUE){
+                        idleBeginTime = System.currentTimeMillis();
+                    }
                     if (localReqQueue.size() > 1) {
+                        idleBeginTime = Long.MAX_VALUE;
                         SL.processRequest(localReqQueue.poll(), cacheIntf);
                         int firstFetchNum = localReqQueue.size();
                         System.out.println("firstFetchNum" + firstFetchNum);
@@ -247,19 +263,67 @@ public class Server extends UnicastRemoteObject
                         }
                     }
                     if ((curReq = localReqQueue.poll()) != null) {
+                        idleBeginTime = Long.MAX_VALUE;
                         SL.processRequest(curReq, cacheIntf);
                     }
+                    if (System.currentTimeMillis() - idleBeginTime > 800 &&
+                            System.currentTimeMillis() - appLastScaleinTime >= APP_REMOVE_COOL_DOWN_INTERVAL){
+                        System.out.println("idle hit");
+                        try {
+                            masterIntf.scaleInApp(7);
+                        } catch (java.rmi.ConnectException | java.rmi.ConnectIOException | java.rmi.UnmarshalException e1){
+                            ;
+                        }
 
+                        idleBeginTime = System.currentTimeMillis();
+                        appLastScaleinTime = System.currentTimeMillis();
+                    }
 
                 }
             }
         }
 	}
 
+
+
+    public synchronized void scaleInApp(int num) throws Exception{
+        System.out.println("Receiving scale in app request:" + num);
+
+        if (System.currentTimeMillis() - appLastScaleinTime > APP_REMOVE_COOL_DOWN_INTERVAL) {
+            System.out.println("Check whther to scale in");
+            int curNum = appServerList.size();
+            num = Math.min(num, curNum - 1);
+            goneAppNum += num;
+            for (int i = 0; i < num; ++i) {
+                Integer appToRemove = 0;
+                try {
+                    appToRemove = appServerList.remove(i);
+                }catch (java.lang.IndexOutOfBoundsException e){
+                    break;
+                }
+                synchronized (forServerList) {
+                    for (int j = 0; i < forServerList.size(); ++i) {
+                        int rpcPort = forServerList.get(i);
+                        Registry reg = LocateRegistry.getRegistry(selfIP, basePort);
+                        ServerIntf curForIntf = (ServerIntf) reg.lookup("//localhost/no" + rpcPort);
+                        curForIntf.goodbyeApp(appToRemove);
+                    }
+                }
+                Thread.sleep(1000);
+                SL.endVM(appToRemove - basePort);
+            }
+            System.out.println("App scale in OK");
+            appLastScaleinTime = System.currentTimeMillis();
+        }else {
+            System.out.println("App scale in Rejected");
+        }
+
+    }
+
 	public void scaleOutApp(int num) throws Exception{
         System.out.println("Receiving scale out app request:" + num);
         int curNum = appServerList.size() + futureAppServerList.size();
-        num = Math.min(num, 4);
+        num = Math.min(num, 6);
         if (curNum <= MAX_APP_NUM &&
                 System.currentTimeMillis() - appLastScaleoutTime > APP_ADD_COOL_DOWN_INTERVAL) {
             appLastScaleoutTime = System.currentTimeMillis();
@@ -287,7 +351,12 @@ public class Server extends UnicastRemoteObject
         }
     }
 
-    public void welcomeNewApp(int rpcPort) throws RemoteException{
+    public void goodbyeApp(Integer rpcPort) throws RemoteException{
+        System.out.println("goodbye, " + rpcPort);
+        appServerList.remove(rpcPort);
+    }
+
+    public void welcomeNewApp(Integer rpcPort) throws RemoteException{
         appServerList.add(rpcPort);
     }
 
@@ -302,19 +371,27 @@ public class Server extends UnicastRemoteObject
             Thread.sleep(5);
 //            System.out.println("appServerList.size()==0");
         }
-        int curPort = appServerList.get(curRound);
-        ServerIntf curAppIntf = null;
+        if (curRound > appServerList.size()-1){
+            curRound = (curRound + 1) % appServerList.size();
+        }
         while (true){
+            int curPort = appServerList.get(curRound);
+            ServerIntf curAppIntf = null;
             try {
                 Registry reg = LocateRegistry.getRegistry(selfIP, basePort);
                 curAppIntf = (ServerIntf) reg.lookup("//localhost/no"+curPort);
-                break;
             }catch (Exception e){
                 e.printStackTrace();
                 continue;
             }
+            try {
+                curAppIntf.addToLocalQue(r);
+                break;
+            } catch (Exception e){
+//                e.printStackTrace();
+                curRound = (curRound + 1) % appServerList.size();
+            }
         }
-        curAppIntf.addToLocalQue(r);
         curRound = (curRound + 1) % appServerList.size();
     }
 
@@ -437,7 +514,8 @@ public class Server extends UnicastRemoteObject
                 if(qty >= 1 && storedQty >= qty) {
                     storedQty -= qty;
                     cache.put(trimmedItem + "_qty", "" + storedQty);
-                    System.out.println("purchase: " + item +" qty:" + qty);
+                    DB.set(trimmedItem+"_qty", storedQty+"", "sqwe");
+//                    System.out.println("purchase: " + item +" qty:" + qty);
                     return true;
                 } else {
                     return false;
