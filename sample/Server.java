@@ -194,7 +194,7 @@ public class Server extends UnicastRemoteObject
                         }
                         centralizedQueue.add(new WrapperReq(r, ts));
 
-                        while (centralizedQueue.size() >= appServerList.size()*2){
+                        while (centralizedQueue.size() >= appServerList.size()*1.8){
                             WrapperReq cur = centralizedQueue.poll();
                             if (cur != null || cur.isTimeout()) {
                                 SL.drop(cur.request);
@@ -290,7 +290,7 @@ public class Server extends UnicastRemoteObject
 
     public WrapperReq getFromCentralizedQueue() throws RemoteException{
         WrapperReq r = null;
-        while (centralizedQueue.size() > appServerList.size()*1.7){
+        while (centralizedQueue.size() > appServerList.size()*1.8){
             r = centralizedQueue.poll();
             if (r!=null || r.isTimeout()){
 //            if (r.isTimeout()){

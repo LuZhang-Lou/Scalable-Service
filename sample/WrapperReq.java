@@ -16,11 +16,11 @@ public class WrapperReq implements Serializable {
             if (isPurchase){
                 long period = System.currentTimeMillis() - getTime;
                 System.out.println("Purchase:" + period);
-                return (period > 1300);
+                return (period > 1200);
             }
             long period = System.currentTimeMillis() - getTime;
             System.out.println("NotPurchase:" + period);
-            return (period) > 560;
+            return (period) > 660;
         }
 
     }
