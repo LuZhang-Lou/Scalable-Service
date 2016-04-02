@@ -247,38 +247,6 @@ public class Server extends UnicastRemoteObject
 //                        System.out.println("process");
                     }
 
-                    /*
-                    if (localReqQueue.size() > 1) {
-                        SL.processRequest(localReqQueue.poll(), cacheIntf);
-                        int firstFetchNum = localReqQueue.size();
-                        System.out.println("firstFetchNum" + firstFetchNum);
-
-                        while (interval <= 800 && localReqQueue.size() > 3) {
-                            System.out.println("localReqQueue.size()" + localReqQueue.size());
-                            Cloud.FrontEndOps.Request  r = localReqQueue.poll();
-                            SL.drop(r);
-                        }
-
-                        while (interval <= 400 && localReqQueue.size() > 1) {
-                            System.out.println("localReqQueue.size()" + localReqQueue.size());
-                            Cloud.FrontEndOps.Request  r = localReqQueue.poll();
-                            SL.drop(r);
-                        }
-
-                        if (firstFetchNum > 1 && System.currentTimeMillis() - lastTime > APP_ADD_COOL_DOWN_INTERVAL) {
-                            lastTime = System.currentTimeMillis();
-                            int scaleUpNum = (int) (((double)(firstFetchNum) * 2) );
-                            System.out.println("asking for scale up app:" + scaleUpNum);
-                            if (scaleUpNum != 0) {
-                                masterIntf.scaleOutApp(scaleUpNum);
-                            }
-                        }
-                    }
-                    if ((curReq = localReqQueue.poll()) != null) {
-                        SL.processRequest(curReq, cacheIntf);
-                    }
-                    */
-
                 }
             }
         }
@@ -290,27 +258,29 @@ public class Server extends UnicastRemoteObject
 
     public WrapperReq getFromCentralizedQueue() throws RemoteException{
         WrapperReq r = null;
-        while (centralizedQueue.size() > appServerList.size()*1.8){
-            r = centralizedQueue.poll();
-            if (r!=null || r.isTimeout()){
+//        while (centralizedQueue.size() > appServerList.size()*1.8){
+//            r = centralizedQueue.poll();
+//            if (r!=null || r.isTimeout()){
 //            if (r.isTimeout()){
-                SL.drop(r.request);
-                System.out.println("ClientDrop1");
-            } else {
-                break;
-            }
-        }
+//                SL.drop(r.request);
+//                System.out.println("ClientDrop1");
+//            } else {
+//                break;
+//            }
+//        }
         while (true){
             r = centralizedQueue.poll();
             if (r == null){
                 continue;
+            }else {
+                break;
             }
-            if (r.isTimeout()){
-                System.out.println("ClientDrop2");
-                SL.drop(r.request);
-                continue;
-            }
-            break;
+//            if (r.isTimeout()){
+//                System.out.println("ClientDrop2");
+//                SL.drop(r.request);
+//                continue;
+//            }
+//            break;
         }
         return r;
     }
