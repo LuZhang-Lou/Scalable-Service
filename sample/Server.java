@@ -170,7 +170,8 @@ public class Server extends UnicastRemoteObject
                 }
                 while (vmId == MASTER && appServerList.size() == 0) {
                     SL.dropHead();
-                    Thread.sleep(50);
+                    System.out.println("DropHead");
+                    Thread.sleep(100);
                 }
                 int dropBCCongestion  = 0;
                 while (true) {
@@ -194,9 +195,10 @@ public class Server extends UnicastRemoteObject
                         }
                         centralizedQueue.add(new WrapperReq(r, ts));
 
-                        while (centralizedQueue.size() >= appServerList.size()*1.6){
+                        while (centralizedQueue.size() >= appServerList.size()*1.5){
                             WrapperReq cur = centralizedQueue.poll();
-                            if (cur != null || cur.isTimeout()) {
+//                            if (cur != null || cur.isTimeout()) {
+                            if (cur != null) {
                                 SL.drop(cur.request);
                                 dropBCCongestion++;
                                 System.out.println("drop b.c. mastercongestion:" + dropBCCongestion);
@@ -238,6 +240,8 @@ public class Server extends UnicastRemoteObject
                     }catch (java.rmi.UnmarshalException | java.rmi.ConnectException | java.rmi.ConnectIOException e){
                         continue;
                     }
+                    SL.processRequest(r.request, cacheIntf);
+                    /*
                     if (r.isTimeout()){
                         SL.drop(r.request);
                         System.out.println("ClientDrop3");
@@ -246,6 +250,7 @@ public class Server extends UnicastRemoteObject
                         SL.processRequest(r.request, cacheIntf);
 //                        System.out.println("process");
                     }
+                    */
 
                 }
             }
