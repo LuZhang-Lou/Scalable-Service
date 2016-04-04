@@ -9,8 +9,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public interface ServerIntf extends Remote {
     public Content getRole(Integer vmID) throws RemoteException;
-    public Cloud.FrontEndOps.Request getFromCentralizedQueue() throws RemoteException;
-    public void addToCentralizedQueue(Cloud.FrontEndOps.Request r) throws RemoteException;
+    public WrapperReq getFromCentralizedQueue() throws RemoteException;
+    public void addToCentralizedQueue(WrapperReq r) throws RemoteException;
 
 }
 

@@ -21,13 +21,14 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
     private static int basePort;
     private static String selfIP;
 
-    private static ConcurrentLinkedQueue <Cloud.FrontEndOps.Request> centralizedQueue;
+//    private static ConcurrentLinkedQueue <Cloud.FrontEndOps.Request> centralizedQueue;
+    private static ConcurrentLinkedQueue <WrapperReq> centralizedQueue;
     private static long lastScaleOutAppTime;
     private static long lastScaleOutForTime;
     private static final long SCALE_OUT_APP_THRESHOLD = 60000;
     private static final long SCALE_OUT_FOR_THRESHOLD = 60000;
     private static final long MAX_FORWARDER_NUM = 1;
-    private static final long MAX_APP_NUM = 10;
+    private static final long MAX_APP_NUM = 12;
 
     // especially for cache
     private static ConcurrentHashMap<String, String> cache;
@@ -48,7 +49,7 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
         System.out.println("---vmID----" + vmId);
 
         SL = new ServerLib(selfIP, basePort);
-        LocateRegistry.getRegistry(selfIP, basePort).bind("//localhost/no" + vmId, new Server());
+        LocateRegistry.getRegistry(selfIP, basePort).bind("//localhost/no" + String.valueOf(vmId), new Server());
 
 
         if(vmId == MASTER) {
@@ -78,6 +79,9 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
             } else if (interval < 650) {
                 startNum = 4;
                 startForNum = 0;
+            } else if (interval < 800) {
+                startNum = 1;
+                startForNum = 0;
             } else {
                 startNum = 1;
                 startForNum = 0;
@@ -103,21 +107,30 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
             Cloud.FrontEndOps.Request r = null;
             while (true) {
                 try {
-                    int queLen = centralizedQueue.size();
-                    System.out.println("queLen" + queLen);
+                    int queLen = SL.getQueueLength();
+//                    System.out.println("queLen" + queLen);
+
+//                    if (queLen > appServerList.size() * 1.5){
                     if (queLen > appServerList.size() * 1.5){
-                        int number = (int)(queLen/appServerList.size()*2.5);
-                        System.out.println("try scale out number:" + number);
+//                        System.out.println("queLen" + queLen);
+                        scaleOutFor(1);
+                        int number = (int)(queLen/appServerList.size());
+//                        System.out.println("try scale out number:" + number);
                         scaleOutApp(number);
                     }
-                    while (centralizedQueue.size() > appServerList.size() * 5){
-                        SL.drop(centralizedQueue.poll());
+
+                    if (centralizedQueue.size() > appServerList.size()) {
+                        while (centralizedQueue.size() > appServerList.size() * 1.5) {
+                            SL.drop(centralizedQueue.poll().request);
+                        }
+                    } else {
+
+                        while ((r = SL.getNextRequest()) == null) { }
+                        centralizedQueue.add(new WrapperReq(r, System.currentTimeMillis()));
                     }
-                    while ((r = SL.getNextRequest()) == null) { }
-                    centralizedQueue.add(r);
                 }
                 catch (Exception e){
-                    e.printStackTrace();
+//                    e.printStackTrace();
                     continue;
                 }
             }
@@ -125,7 +138,6 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
 
         //non-master vm
         else{
-
             while (true) {
                 try {
                     masterIntf = (ServerIntf) LocateRegistry.getRegistry(selfIP, basePort).lookup("//localhost/no1");
@@ -141,7 +153,7 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
             try {
                 reply = masterIntf.getRole(vmId);
             } catch (Exception e){
-                e.printStackTrace();
+//                e.printStackTrace();
                 return;
             }
 
@@ -152,8 +164,11 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
                 SL.register_frontend();
                 Cloud.FrontEndOps.Request r = null;
                 while (true) {
+//                    while (SL.getQueueLength() > 6){
+//                        SL.dropHead();
+//                    }
                     while ((r = SL.getNextRequest()) == null){}
-                    masterIntf.addToCentralizedQueue(r);
+                    masterIntf.addToCentralizedQueue(new WrapperReq(r, System.currentTimeMillis()));
                 }
             }
             // processor
@@ -162,9 +177,16 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
                 cacheIntf = (Cloud.DatabaseOps) masterIntf;
                 while(true) {
                     try {
-                        Cloud.FrontEndOps.Request r = masterIntf.getFromCentralizedQueue();
-                        SL.processRequest(r, cacheIntf);
+                        WrapperReq r = masterIntf.getFromCentralizedQueue();
+                        if (r.isTimeout()){
+                            SL.drop(r.request);
+//                            System.out.println("drop");
+                        } else {
+//                            System.out.println("process");
+                            SL.processRequest(r.request, cacheIntf);
+                        }
                     } catch (Exception e){
+//                        e.printStackTrace();
                         continue;
                     }
 
@@ -174,15 +196,27 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
     }
 
     public static void scaleOutApp(int number){
-        number = Math.min(number, 8);
+        number = Math.max(number, 7);
+        number = Math.min(number, 10);
         if (appServerList.size() < MAX_APP_NUM && System.currentTimeMillis() - lastScaleOutAppTime >= SCALE_OUT_APP_THRESHOLD) {
+            System.out.println("scaleOutApp:" + number);
             for (int i = 0; i < Math.min(number, MAX_APP_NUM - appServerList.size()); ++i) {
                 SL.startVM();
-                System.out.println("ScaleOutNewApp");
             }
             lastScaleOutAppTime = System.currentTimeMillis();
         }else {
-            System.out.println("scaleOutRefused");
+//            System.out.println("scaleOutRefused");
+        }
+    }
+
+
+    public static void scaleOutFor(int number){
+        if (forServerList.size() < MAX_FORWARDER_NUM && System.currentTimeMillis() - lastScaleOutForTime >= SCALE_OUT_FOR_THRESHOLD) {
+            System.out.println("scale out for");
+            forServerList.add(SL.startVM());
+            lastScaleOutForTime = System.currentTimeMillis();
+        }else {
+//            System.out.println("scaleOutRefused");
         }
     }
 
@@ -199,8 +233,8 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
         }
     }
 
-    public Cloud.FrontEndOps.Request getFromCentralizedQueue() throws RemoteException{
-        Cloud.FrontEndOps.Request r = null;
+    public WrapperReq getFromCentralizedQueue() throws RemoteException{
+        WrapperReq r = null;
         while (true){
             r = centralizedQueue.poll();
             if (r == null){
@@ -213,7 +247,7 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
     }
 
 
-    public void addToCentralizedQueue (Cloud.FrontEndOps.Request r) throws RemoteException{
+    public void addToCentralizedQueue (WrapperReq r) throws RemoteException{
         centralizedQueue.add(r);
     }
 

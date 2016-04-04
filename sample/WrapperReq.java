@@ -15,12 +15,12 @@ public class WrapperReq implements Serializable {
         boolean isTimeout(){
             if (isPurchase){
                 long period = System.currentTimeMillis() - getTime;
-                System.out.println("Purchase:" + period);
+//                System.out.println("Purchase:" + period);
                 return (period > 1200);
             }
             long period = System.currentTimeMillis() - getTime;
-            System.out.println("NotPurchase:" + period);
-            return (period) > 660;
+//            System.out.println("NotPurchase:" + period);
+            return (period) > 460;
         }
 
     }
