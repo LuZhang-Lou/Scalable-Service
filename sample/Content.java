@@ -12,11 +12,6 @@ public class Content implements Serializable{
         this.role = role;
     }
 
-//    Content(boolean role, ArrayList<Integer> list){
-//        this.role = role;
-//        this.appServerList = list;
-//    }
-
     Content(boolean role, long interval){
         this.role = role;
         this.interval = interval;

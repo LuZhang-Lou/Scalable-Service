@@ -20,7 +20,7 @@ public class WrapperReq implements Serializable {
             }
             long period = System.currentTimeMillis() - getTime;
             System.out.println("NotPurchase:" + period);
-            return (period) > 530;
+            return (period) > 660;
         }
 
     }
