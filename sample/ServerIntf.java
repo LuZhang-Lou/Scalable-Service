@@ -11,6 +11,8 @@ public interface ServerIntf extends Remote {
     public Content getRole(Integer vmID) throws RemoteException;
     public WrapperReq getFromCentralizedQueue() throws RemoteException;
     public void addToCentralizedQueue(WrapperReq r) throws RemoteException;
+    public void killMe(Integer vmId, boolean type) throws RemoteException;
+    public void killYourself() throws RemoteException;
 
 }
 

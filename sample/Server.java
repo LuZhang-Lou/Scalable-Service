@@ -1,4 +1,5 @@
 
+
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.server.UnicastRemoteObject;
@@ -25,8 +26,10 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
     private static ConcurrentLinkedQueue <WrapperReq> centralizedQueue;
     private static long lastScaleOutAppTime;
     private static long lastScaleOutForTime;
+    private static long lastScaleInTime;
     private static final long SCALE_OUT_APP_THRESHOLD = 60000;
     private static final long SCALE_OUT_FOR_THRESHOLD = 60000;
+    private static final long SCALE_In_THRESHOLD = 60000;
     private static final long MAX_FORWARDER_NUM = 1;
     private static final long MAX_APP_NUM = 12;
 
@@ -34,6 +37,9 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
     private static ConcurrentHashMap<String, String> cache;
     private static Cloud.DatabaseOps cacheIntf = null;
     private static Cloud.DatabaseOps DB = null;
+
+    private static boolean kill = false;
+    private static boolean unregister = false;
 
     public Server() throws RemoteException {
 
@@ -73,9 +79,9 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
             if (interval < 130) {
                 startNum = 7;
                 startForNum = 1;
-            } else if (interval < 300) {
-                startNum = 5;
-                startForNum = 0;
+            } else if (interval < 200) {
+                startNum = 6;
+                startForNum = 1;
             } else if (interval < 650) {
                 startNum = 4;
                 startForNum = 0;
@@ -90,9 +96,16 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
             for (int i = 0; i < startNum; ++i) {
                 SL.startVM();
             }
-            lastScaleOutAppTime = 0;
-            lastScaleOutForTime = 0;
-//            lastScaleOutAppTime = System.currentTimeMillis();
+
+            if (interval < 300) {
+                lastScaleInTime = 0 ;
+                lastScaleOutAppTime = System.currentTimeMillis();
+                lastScaleOutForTime = System.currentTimeMillis();
+            }else {
+                lastScaleInTime = System.currentTimeMillis();
+                lastScaleOutAppTime = 0;
+                lastScaleOutForTime = 0;
+            }
 
             for (int i = 0; i < startForNum; ++i) {
                 forServerList.add(SL.startVM());
@@ -107,30 +120,35 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
             Cloud.FrontEndOps.Request r = null;
             while (true) {
                 try {
+                    // consider scaleout
                     int queLen = SL.getQueueLength();
-//                    System.out.println("queLen" + queLen);
-
-//                    if (queLen > appServerList.size() * 1.5){
                     if (queLen > appServerList.size() * 1.5){
-//                        System.out.println("queLen" + queLen);
                         scaleOutFor(1);
-                        int number = (int)(queLen/appServerList.size());
-//                        System.out.println("try scale out number:" + number);
+                        int number = (int)(queLen/appServerList.size()*4);
                         scaleOutApp(number);
                     }
 
+                    // if queue is too long, drop head
                     if (centralizedQueue.size() > appServerList.size()) {
                         while (centralizedQueue.size() > appServerList.size() * 1.5) {
                             SL.drop(centralizedQueue.poll().request);
                         }
                     } else {
+                        // consider scalein
+                        long lastTimeGetReq = System.currentTimeMillis();
+                        while ((r = SL.getNextRequest()) == null) {
+                        }
+                        long period = System.currentTimeMillis() - lastTimeGetReq;
 
-                        while ((r = SL.getNextRequest()) == null) { }
+                        if (period > interval * 3){
+                            int scaleInAppNumber = (int) (period - interval)/40;
+                            int scaleInForNumber = scaleInAppNumber > 5 ? 1 : 0;
+                            scaleIn(scaleInAppNumber, scaleInForNumber);
+                        }
                         centralizedQueue.add(new WrapperReq(r, System.currentTimeMillis()));
                     }
                 }
                 catch (Exception e){
-//                    e.printStackTrace();
                     continue;
                 }
             }
@@ -138,6 +156,7 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
 
         //non-master vm
         else{
+            // lookup master (and cache)
             while (true) {
                 try {
                     masterIntf = (ServerIntf) LocateRegistry.getRegistry(selfIP, basePort).lookup("//localhost/no1");
@@ -147,13 +166,11 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
                 }
             }
 
-
-            // getrole
+            // get role
             Content reply = null;
             try {
                 reply = masterIntf.getRole(vmId);
             } catch (Exception e){
-//                e.printStackTrace();
                 return;
             }
 
@@ -164,11 +181,19 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
                 SL.register_frontend();
                 Cloud.FrontEndOps.Request r = null;
                 while (true) {
-//                    while (SL.getQueueLength() > 6){
-//                        SL.dropHead();
-//                    }
                     while ((r = SL.getNextRequest()) == null){}
                     masterIntf.addToCentralizedQueue(new WrapperReq(r, System.currentTimeMillis()));
+                    // if have to kill self
+                    if (kill){
+                        if (unregister == false) {
+                            SL.unregister_frontend();
+                            unregister = true;
+                        }
+                        if (SL.getQueueLength() == 0){
+                            masterIntf.killMe(vmId, FORWARDER);
+                            Thread.sleep(5000);
+                        }
+                    }
                 }
             }
             // processor
@@ -185,6 +210,10 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
 //                            System.out.println("process");
                             SL.processRequest(r.request, cacheIntf);
                         }
+                        if (kill){
+                            masterIntf.killMe(vmId, PROCESSOR);
+                            Thread.sleep(5000);
+                        }
                     } catch (Exception e){
 //                        e.printStackTrace();
                         continue;
@@ -195,10 +224,55 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
         }
     }
 
+    public void killMe(Integer vmId, boolean type) throws RemoteException{
+        if (type == FORWARDER){
+            System.out.println("kill forwarder:" + vmId);
+            forServerList.remove(vmId);
+            SL.endVM(vmId);
+        } else {
+            System.out.println("kill processor:" + vmId);
+            appServerList.remove(vmId);
+            SL.endVM(vmId);
+        }
+
+    }
+    public void killYourself() throws RemoteException{
+        kill = true;
+    }
+
+    public static void scaleIn(int appNumber, int forNumber) throws Exception{
+        appNumber = Math.min(appServerList.size()-1, appNumber);
+        forNumber = Math.min(forServerList.size(), forNumber);
+        if (System.currentTimeMillis() - lastScaleInTime >= SCALE_In_THRESHOLD) {
+            System.out.println("appServerList.size():" + appServerList.size());
+            System.out.println("scaleInAppNum" +  appNumber+ " scaleInForNumber:" + forNumber);
+            System.out.println("scaleInAccepted");
+            // scale in app
+            for (int i = 0; i < appNumber; ++i){
+                int vmId = appServerList.remove(appServerList.size()-1);
+                System.out.println("endApp:"+vmId);
+//                SL.endVM(vmId);
+                ServerIntf curServer = (ServerIntf) LocateRegistry.getRegistry(selfIP, basePort).lookup("//localhost/no"+String.valueOf(vmId));
+                curServer.killYourself();
+            }
+
+            for (int i = 0; i < forNumber; ++i){
+                int vmId = forServerList.remove(0);
+                System.out.println("endFor:"+vmId);
+//                SL.endVM(vmId);
+                ServerIntf curServer = (ServerIntf) LocateRegistry.getRegistry(selfIP, basePort).lookup("//localhost/no"+String.valueOf(vmId));
+                curServer.killYourself();
+            }
+            lastScaleInTime = System.currentTimeMillis();
+        }
+    }
+
     public static void scaleOutApp(int number){
-        number = Math.max(number, 7);
-        number = Math.min(number, 10);
+        int originalNum = number;
+//        number = Math.max(number, 7);
+        number = Math.min(number, 7);
         if (appServerList.size() < MAX_APP_NUM && System.currentTimeMillis() - lastScaleOutAppTime >= SCALE_OUT_APP_THRESHOLD) {
+            System.out.println("original number:" + originalNum);
             System.out.println("scaleOutApp:" + number);
             for (int i = 0; i < Math.min(number, MAX_APP_NUM - appServerList.size()); ++i) {
                 SL.startVM();
