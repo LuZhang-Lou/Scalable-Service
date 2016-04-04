@@ -1,5 +1,3 @@
-
-
 import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.server.UnicastRemoteObject;
@@ -22,8 +20,7 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
     private static int basePort;
     private static String selfIP;
 
-//    private static ConcurrentLinkedQueue <Cloud.FrontEndOps.Request> centralizedQueue;
-    private static ConcurrentLinkedQueue <WrapperReq> centralizedQueue;
+    private static ConcurrentLinkedQueue <Cloud.FrontEndOps.Request> centralizedQueue;
     private static long lastScaleOutAppTime;
     private static long lastScaleOutForTime;
     private static long lastScaleInTime;
@@ -60,7 +57,6 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
 
         if(vmId == MASTER) {
             SL.startVM();
-
             forServerList = Collections.synchronizedList(new ArrayList<>());
             appServerList = Collections.synchronizedList(new ArrayList<>());
             DB = SL.getDB();
@@ -83,10 +79,7 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
                 startNum = 6;
                 startForNum = 1;
             } else if (interval < 650) {
-                startNum = 4;
-                startForNum = 0;
-            } else if (interval < 800) {
-                startNum = 1;
+                startNum = 3;
                 startForNum = 0;
             } else {
                 startNum = 1;
@@ -131,7 +124,7 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
                     // if queue is too long, drop head
                     if (centralizedQueue.size() > appServerList.size()) {
                         while (centralizedQueue.size() > appServerList.size() * 1.5) {
-                            SL.drop(centralizedQueue.poll().request);
+                            SL.drop(centralizedQueue.poll());
                         }
                     } else {
                         // consider scalein
@@ -143,9 +136,11 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
                         if (period > interval * 3){
                             int scaleInAppNumber = (int) (period - interval)/40;
                             int scaleInForNumber = scaleInAppNumber > 5 ? 1 : 0;
-                            scaleIn(scaleInAppNumber, scaleInForNumber);
+                            if (scaleIn(scaleInAppNumber, scaleInForNumber)) {
+                                interval = period;
+                            }
                         }
-                        centralizedQueue.add(new WrapperReq(r, System.currentTimeMillis()));
+                        centralizedQueue.add(r);
                     }
                 }
                 catch (Exception e){
@@ -182,7 +177,7 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
                 Cloud.FrontEndOps.Request r = null;
                 while (true) {
                     while ((r = SL.getNextRequest()) == null){}
-                    masterIntf.addToCentralizedQueue(new WrapperReq(r, System.currentTimeMillis()));
+                    masterIntf.addToCentralizedQueue(r);
                     // if have to kill self
                     if (kill){
                         if (unregister == false) {
@@ -202,14 +197,8 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
                 cacheIntf = (Cloud.DatabaseOps) masterIntf;
                 while(true) {
                     try {
-                        WrapperReq r = masterIntf.getFromCentralizedQueue();
-                        if (r.isTimeout()){
-                            SL.drop(r.request);
-//                            System.out.println("drop");
-                        } else {
-//                            System.out.println("process");
-                            SL.processRequest(r.request, cacheIntf);
-                        }
+                        Cloud.FrontEndOps.Request r = masterIntf.getFromCentralizedQueue();
+                        SL.processRequest(r, cacheIntf);
                         if (kill){
                             masterIntf.killMe(vmId, PROCESSOR);
                             Thread.sleep(5000);
@@ -240,18 +229,14 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
         kill = true;
     }
 
-    public static void scaleIn(int appNumber, int forNumber) throws Exception{
+    public static boolean scaleIn(int appNumber, int forNumber) throws Exception{
         appNumber = Math.min(appServerList.size()-1, appNumber);
         forNumber = Math.min(forServerList.size(), forNumber);
         if (System.currentTimeMillis() - lastScaleInTime >= SCALE_In_THRESHOLD) {
-            System.out.println("appServerList.size():" + appServerList.size());
-            System.out.println("scaleInAppNum" +  appNumber+ " scaleInForNumber:" + forNumber);
-            System.out.println("scaleInAccepted");
             // scale in app
             for (int i = 0; i < appNumber; ++i){
                 int vmId = appServerList.remove(appServerList.size()-1);
                 System.out.println("endApp:"+vmId);
-//                SL.endVM(vmId);
                 ServerIntf curServer = (ServerIntf) LocateRegistry.getRegistry(selfIP, basePort).lookup("//localhost/no"+String.valueOf(vmId));
                 curServer.killYourself();
             }
@@ -259,17 +244,17 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
             for (int i = 0; i < forNumber; ++i){
                 int vmId = forServerList.remove(0);
                 System.out.println("endFor:"+vmId);
-//                SL.endVM(vmId);
                 ServerIntf curServer = (ServerIntf) LocateRegistry.getRegistry(selfIP, basePort).lookup("//localhost/no"+String.valueOf(vmId));
                 curServer.killYourself();
             }
             lastScaleInTime = System.currentTimeMillis();
+            return true;
         }
+        return false;
     }
 
     public static void scaleOutApp(int number){
         int originalNum = number;
-//        number = Math.max(number, 7);
         number = Math.min(number, 7);
         if (appServerList.size() < MAX_APP_NUM && System.currentTimeMillis() - lastScaleOutAppTime >= SCALE_OUT_APP_THRESHOLD) {
             System.out.println("original number:" + originalNum);
@@ -278,8 +263,6 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
                 SL.startVM();
             }
             lastScaleOutAppTime = System.currentTimeMillis();
-        }else {
-//            System.out.println("scaleOutRefused");
         }
     }
 
@@ -289,8 +272,6 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
             System.out.println("scale out for");
             forServerList.add(SL.startVM());
             lastScaleOutForTime = System.currentTimeMillis();
-        }else {
-//            System.out.println("scaleOutRefused");
         }
     }
 
@@ -307,8 +288,8 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
         }
     }
 
-    public WrapperReq getFromCentralizedQueue() throws RemoteException{
-        WrapperReq r = null;
+    public Cloud.FrontEndOps.Request getFromCentralizedQueue() throws RemoteException{
+        Cloud.FrontEndOps.Request r = null;
         while (true){
             r = centralizedQueue.poll();
             if (r == null){
@@ -321,7 +302,7 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
     }
 
 
-    public void addToCentralizedQueue (WrapperReq r) throws RemoteException{
+    public void addToCentralizedQueue (Cloud.FrontEndOps.Request r) throws RemoteException{
         centralizedQueue.add(r);
     }
 
@@ -341,11 +322,10 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
 
 
     public synchronized boolean set(String key, String value, String password) throws RemoteException {
-//        return DB.set(key, value, password);
-//         write through
+        //write through
         System.out.println("CallSet:" + password);
         boolean ret = DB.set(key, value, password);
-//         if success, insert in cache
+        // if success, insert in cache
         if (ret){
             cache.put(key, value);
             return true;
@@ -362,7 +342,6 @@ public class Server extends UnicastRemoteObject implements ServerIntf, Cloud.Dat
             String qtyStr = trimmedItem + "_qty";
             cache.put(qtyStr, String.valueOf(Integer.parseInt(cache.get(qtyStr))-qty));
         }
-//        System.out.println("purchase: " + item +" qty:" + qty + "ret:" + ret);
         return ret;
     }
 
